@@ -1,3 +1,7 @@
+# Large data files & local outputs
+PTM_o42260_PTManalysis/
+output_3d/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -27,6 +31,3 @@ wheels/
 # IDEs
 .vscode/
 .idea/
-
-# Structure downloads cache (optional)
-# output_3d/structures/
