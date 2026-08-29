@@ -70,6 +70,7 @@ def test_server_serves_catalog_and_apps(tmp_path):
         try:
             with urllib.request.urlopen(f"http://127.0.0.1:{port}/data/catalog.cbor") as response:
                 payload = cbor2.loads(response.read())
+                assert response.headers["Cache-Control"] == "no-cache"
             assert payload["proteins"][0]["gene_name"] == "MAPK1"
             with urllib.request.urlopen(f"http://127.0.0.1:{port}/index.html") as response:
                 assert b"3D PTM" in response.read()

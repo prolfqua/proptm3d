@@ -37,6 +37,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- `ptm3d serve` refreshes the browser app files in the output directory to the
+  installed ptm3d version before serving, and the server sends
+  `Cache-Control: no-cache`, so an old output folder or a cached browser module can
+  no longer show an outdated app.
+
 - The visualization now has two paths. New default path: the pipeline writes data files
   (per-protein JSON under `data/`, a `data/catalog.json` run index, cached PDB models)
   rendered by a static single-page JS app (`index.html` + `app.js`) copied into the

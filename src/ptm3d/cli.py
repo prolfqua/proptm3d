@@ -49,10 +49,14 @@ def run(
 def serve(directory: Path = Path("output_3d"), *, port: int = 8000) -> None:
     """Serve a generated output directory so the visualizer can run in the browser.
 
+    The browser app assets in the directory are refreshed to the installed ptm3d
+    version first, so an old output folder always gets the current app.
+
     Args:
         directory: The pipeline output directory to serve.
         port: TCP port to listen on.
     """
+    webapp.install_app(directory)
     webapp.serve(directory, port=port)
 
 

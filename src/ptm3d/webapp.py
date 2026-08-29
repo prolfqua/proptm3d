@@ -80,8 +80,19 @@ def install_app(output_dir: Path | str) -> None:
         target.write_text((assets / name).read_text(encoding="utf-8"), encoding="utf-8")
 
 
+class _NoCacheHandler(SimpleHTTPRequestHandler):
+    """Static file handler that forbids caching, so app updates reach the browser."""
+
+    def end_headers(self) -> None:
+        self.send_header("Cache-Control", "no-cache")
+        super().end_headers()
+
+
 def create_server(directory: Path | str, port: int = 0) -> ThreadingHTTPServer:
     """Create an HTTP server rooted at a generated output directory.
+
+    Responses carry ``Cache-Control: no-cache`` so browsers revalidate the app's
+    module files on every load instead of serving stale cached copies.
 
     Args:
         directory: Directory to serve.
@@ -90,7 +101,7 @@ def create_server(directory: Path | str, port: int = 0) -> ThreadingHTTPServer:
     Returns:
         The configured (not yet running) server.
     """
-    handler = partial(SimpleHTTPRequestHandler, directory=str(directory))
+    handler = partial(_NoCacheHandler, directory=str(directory))
     return ThreadingHTTPServer(("127.0.0.1", port), handler)
 
 
