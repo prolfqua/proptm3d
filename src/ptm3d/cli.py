@@ -25,6 +25,7 @@ def run(
     enrichment: Annotated[
         list[Path] | None, Parameter(name=("--enrichment", "-e"), consume_multiple=True)
     ] = None,
+    sheet: Annotated[str | None, Parameter(name="--sheet")] = None,
     html: bool = True,
     data_format: Annotated[Literal["cbor", "json"], Parameter(name="--format")] = "cbor",
 ) -> None:
@@ -38,6 +39,8 @@ def run(
         proteins: Specific UniProt accessions to process.
         enrichment: GSEAResult JSON files from prophosqua (PTM-SEA, KinaseLib, MEA)
             for the app's category selector.
+        sheet: Sheet name to read when the input is an Excel workbook (e.g. DPA in
+            the combined PTM_results.xlsx); the first sheet by default.
         html: Also write a standalone HTML dashboard per protein (--no-html to skip).
         data_format: On-disk format for the app's data files and catalog.
     """
@@ -49,6 +52,7 @@ def run(
         html_reports=html,
         writer=payload_writer_for(data_format),
         enrichment_files=enrichment,
+        sheet=sheet if sheet is not None else 0,
     )
 
 

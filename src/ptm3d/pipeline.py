@@ -118,6 +118,7 @@ def run_ptm3d_pipeline(
     html_reports: bool = True,
     writer: PayloadWriter | None = None,
     enrichment_files: list[Path] | None = None,
+    sheet: int | str = 0,
 ) -> Path:
     """Run the end-to-end 3D PTM and log2FC visualizer pipeline.
 
@@ -140,6 +141,8 @@ def run_ptm3d_pipeline(
         enrichment_files: GSEAResult JSON files written by prophosqua (PTM-SEA,
             KinaseLib, MEA); when given, the category index ``data/categories.*``
             is written for the browser app's category selector.
+        sheet: Sheet to read (0-based index or name) when the input is an Excel
+            workbook, e.g. ``"DPA"`` in the combined ``PTM_results.xlsx``.
 
     Returns:
         The path of the browser app entry point (``index.html``).
@@ -150,7 +153,7 @@ def run_ptm3d_pipeline(
         writer = CborPayloadWriter()
 
     logger.info("Loading PTM results from {}", input_file)
-    df = load_ptm_data(input_file)
+    df = load_ptm_data(input_file, sheet_name=sheet)
     logger.info("Loaded {} PTM records across {} proteins", df.height, df["uniprot_acc"].n_unique())
 
     if target_proteins:

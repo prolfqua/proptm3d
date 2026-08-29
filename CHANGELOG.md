@@ -18,6 +18,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   and category coloring (auto-set on select/deselect); a "Cat." column shows per site
   how many categories it belongs to; the category table reports "sites in catalog /
   total member sites" so partial catalogs are visible, not silent.
+- `--sheet <name>` selects the sheet of an Excel workbook input (e.g. `DPA` in the
+  combined `PTM_results.xlsx`); the first sheet remains the default.
 - A global contrast dropdown in the toolbar scopes the category table, the site table,
   the 3D panels (one per contrast under "All contrasts"), and the protein table's
   Sig./Max FC columns, which now come from per-contrast stats in the catalog

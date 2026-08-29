@@ -160,6 +160,21 @@ def test_cli_main(tmp_path, input_csv, pdb_file, monkeypatch):
     assert (out_dir / "data" / "catalog.cbor").exists()  # The CLI defaults to --format cbor.
 
 
+def test_cli_sheet_selects_workbook_sheet(tmp_path, ptm_frame, pdb_file, monkeypatch):
+    monkeypatch.setattr(pipeline, "fetch_structure", lambda acc, cache_dir: pdb_file)
+    xlsx = tmp_path / "PTM_results.xlsx"
+    with __import__("xlsxwriter").Workbook(xlsx) as wb:
+        # An unrelated first sheet: --sheet must skip it.
+        ptm_frame.rename({"protein_Id": "wrong"}).write_excel(wb, worksheet="other")
+        ptm_frame.write_excel(wb, worksheet="DPA")
+    out_dir = tmp_path / "sheet_output"
+
+    with pytest.raises(SystemExit) as excinfo:
+        cli.app(["--input", str(xlsx), "--output_dir", str(out_dir), "--sheet", "DPA"])
+    assert excinfo.value.code == 0
+    assert (out_dir / "data" / "MAPK1_P28482.cbor").exists()
+
+
 def test_cli_format_json(tmp_path, input_csv, pdb_file, monkeypatch):
     monkeypatch.setattr(pipeline, "fetch_structure", lambda acc, cache_dir: pdb_file)
     out_dir = tmp_path / "cli_json"
