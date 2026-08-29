@@ -11,10 +11,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   with header filters — a contrast dropdown, an FDR `<=` significance filter, a
   `|log2FC| >=` effect-size filter, and text filters (site, sequence window); the
   p-value column is omitted, and the pLDDT/Exposure headers carry explanatory
-  tooltips. The 3D area always shows exactly the table's visible rows — a row
-  selection narrows the view further but never overrides the filters — split into
+  tooltips. The 3D area always shows exactly the table's filtered rows, split into
   one labeled 3Dmol panel per contrast, so the same site in several contrasts
-  appears side by side. Clicking a
+  appears side by side; selecting a row (or clicking a sphere) only highlights and
+  centers that site, never changing which sites are drawn. Clicking a
   site row pans the camera to the residue at the current zoom level and emphasizes it
   (larger sphere, highlighted label) instead of the earlier abrupt zoom — the same
   behavior applies in the classic app. Built on the

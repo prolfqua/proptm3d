@@ -110,7 +110,6 @@ class PtmApp extends LitElement {
     this.proteinTable = null
     this.ptms = []
     this.visiblePtms = []
-    this.selectedPtms = []
     this.pdbText = ''
     this.viewerPanels = new Map() // contrast -> { panel, viewer }
     this.highlighted = null // { contrast, resNum }
@@ -135,17 +134,22 @@ class PtmApp extends LitElement {
       columns: SITE_COLUMNS,
       layout: 'fitColumns',
       height: '100%',
-      selectableRows: true,
+      selectableRows: 1,
       initialSort: [{ column: 'fdr', dir: 'asc' }]
     })
-    this.table.on('rowClick', (_event, row) => this.showSite(row.getData()))
     this.table.on('dataFiltered', (_filters, rows) => {
       this.visiblePtms = rows.map((row) => row.getData())
       this.renderViewers()
     })
+    // Selection only highlights; the header filters alone decide what is drawn.
     this.table.on('rowSelectionChanged', (data) => {
-      this.selectedPtms = data
-      this.renderViewers()
+      if (data.length) {
+        this.showSite(data[0])
+      } else {
+        this.highlighted = null
+        this.status = ''
+        this.renderViewers()
+      }
     })
 
     try {
@@ -182,7 +186,6 @@ class PtmApp extends LitElement {
 
     // A new protein invalidates every panel's loaded model.
     this.clearPanels()
-    this.selectedPtms = []
     this.highlighted = null
     await this.table.setData(this.ptms)
     // Default to the first contrast; clear the dropdown to compare all contrasts.
@@ -219,18 +222,9 @@ class PtmApp extends LitElement {
     return entry
   }
 
-  /**
-   * Sites to draw: the filtered rows, narrowed to the selection when one exists.
-   *
-   * Filters always apply. Tabulator keeps rows selected even after a filter hides
-   * them, so a stale selection with no overlap falls back to the filtered rows
-   * instead of overriding them.
-   */
+  /** Sites to draw: exactly the table's filtered rows; selection never changes this. */
   activePtms () {
-    if (!this.selectedPtms.length) return this.visiblePtms
-    const selectedKeys = new Set(this.selectedPtms.map((p) => `${p.contrast}|${p.site}`))
-    const narrowed = this.visiblePtms.filter((p) => selectedKeys.has(`${p.contrast}|${p.site}`))
-    return narrowed.length ? narrowed : this.visiblePtms
+    return this.visiblePtms
   }
 
   renderViewers () {
@@ -255,7 +249,7 @@ class PtmApp extends LitElement {
           ? this.highlighted.resNum
           : null
       renderPtmSites(
-        viewer, groups.get(contrast), this.styleChoice, (p) => this.showSite(p), highlightResNum
+        viewer, groups.get(contrast), this.styleChoice, (p) => this.selectRowFor(p), highlightResNum
       )
     })
     // Panel widths change with the panel count; 3Dmol must re-measure its canvases.
@@ -265,6 +259,19 @@ class PtmApp extends LitElement {
         viewer.render()
       })
     })
+  }
+
+  /** A click on a 3D sphere routes through the table's selection. */
+  selectRowFor (p) {
+    const row = this.table
+      .getRows('active')
+      .find((r) => r.getData().site === p.site && r.getData().contrast === p.contrast)
+    if (row) {
+      this.table.deselectRow()
+      row.select()
+    } else {
+      this.showSite(p)
+    }
   }
 
   showSite (p) {
