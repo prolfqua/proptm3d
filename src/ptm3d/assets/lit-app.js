@@ -219,9 +219,18 @@ class PtmApp extends LitElement {
     return entry
   }
 
-  /** Sites to draw: the selected rows when any are selected, else the filtered rows. */
+  /**
+   * Sites to draw: the filtered rows, narrowed to the selection when one exists.
+   *
+   * Filters always apply. Tabulator keeps rows selected even after a filter hides
+   * them, so a stale selection with no overlap falls back to the filtered rows
+   * instead of overriding them.
+   */
   activePtms () {
-    return this.selectedPtms.length ? this.selectedPtms : this.visiblePtms
+    if (!this.selectedPtms.length) return this.visiblePtms
+    const selectedKeys = new Set(this.selectedPtms.map((p) => `${p.contrast}|${p.site}`))
+    const narrowed = this.visiblePtms.filter((p) => selectedKeys.has(`${p.contrast}|${p.site}`))
+    return narrowed.length ? narrowed : this.visiblePtms
   }
 
   renderViewers () {
