@@ -46,17 +46,28 @@ pip install .
 
 ### 2. Command line usage
 
-Process the top significant proteins in a dataset, then serve the result and open it in the browser:
+Process every protein with a significant site (the default), then serve the result and open it in
+the browser:
 
 ```bash
-ptm3d --input PTM_results.xlsx --output_dir output_3d --max_proteins 10
+ptm3d --input PTM_results.xlsx --output_dir output_3d
 ptm3d serve output_3d          # http://127.0.0.1:8000/
 ```
 
-Process specific target proteins by UniProt accession:
+Cap the run to the top N proteins (quick looks, tests), or process specific UniProt accessions:
 
 ```bash
+ptm3d --input PTM_results.xlsx --output_dir output_3d --max_proteins 10
 ptm3d --input PTM_results.xlsx --output_dir output_3d --proteins P28482 P12270 O60343
+```
+
+Add the enrichment results the PTM pipeline writes (string_gsea GSEAResult JSON from PTM-SEA,
+KinaseLib GSEA, and MEA) to get the category selector in the table view — pick a kinase or
+signature, see the proteins and sites that are members, marked on the structure:
+
+```bash
+ptm3d --input PTM_results.xlsx --output_dir output_3d \
+  --enrichment PTMSEA_DPA_results.json KinaseLib_GSEA_DPA.json MEA_DPA_results.json
 ```
 
 (During development, prefix the commands with `uv run`.)
@@ -69,9 +80,12 @@ There are two visualization paths:
   at view time (which is why the folder must be served over HTTP: `ptm3d serve`, or any static file
   server):
   - `index.html` — the classic card-panel dashboard;
-  - `lit.html` — a table-centric view (Lit + Tabulator, the rawDIAGQC stack): a protein catalog table
-    and a PTM site table with contrast/FDR header filters; the 3D area mirrors the filtered or
-    selected rows, one panel per contrast.
+  - `lit.html` — a table-centric view (Lit + Tabulator, the rawDIAGQC stack): three stacked tables
+    on the left (enrichment categories when `--enrichment` was given, proteins, PTM sites), the 3D
+    viewer on the right, and a global contrast dropdown scoping all of them. Selecting a category
+    filters proteins and sites to its members (leading edge or full set, toggleable) while the
+    figure keeps all sites visible and marks the members; sphere color switches between log2FC and
+    category membership.
 - **Standalone HTML** (kept for the moment): self-contained `<gene>_<acc>_3d.html` dashboards with the
   data embedded, openable directly from disk without a server. Written by default; skip with
   `--no-html`.
@@ -88,9 +102,9 @@ ptm3d serve output_3d
 
 How protein selection and contrasts work:
 
-- **Automatic selection (`--max_proteins`)**: by default, `ptm3d` filters the dataset for statistically
-  significant modifications (FDR <= 0.05), ranks proteins by their count of significant PTM sites, and selects
-  the top N.
+- **Automatic selection**: by default, `ptm3d` filters the dataset for statistically significant
+  modifications (FDR <= 0.05) and processes every protein with at least one significant site,
+  ranked by significant-site count; `--max_proteins N` caps that to the top N.
 - **Multi-contrast inclusion**: once a protein is selected, all condition contrasts for that protein are included
   in the interactive HTML report and can be toggled via the sidebar dropdown.
 

@@ -39,6 +39,8 @@ class ProteinReport:
         sig_count: Number of records significant at the FDR threshold.
         max_log2fc: Signed log2FC of the site with the largest absolute fold change,
             or None when no site has a fold change.
+        contrast_stats: Per-contrast ``{"sig_count": ..., "max_log2fc": ...}``, so
+            the app can show the counts of the currently selected contrast.
         data_file: Path of the protein's JSON data file, relative to the output root.
         pml_file: Path of the PyMOL script, relative to the output root.
     """
@@ -48,6 +50,7 @@ class ProteinReport:
     ptm_count: int
     sig_count: int
     max_log2fc: float | None
+    contrast_stats: dict[str, dict]
     data_file: str
     pml_file: str
 

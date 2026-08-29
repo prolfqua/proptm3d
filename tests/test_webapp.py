@@ -9,12 +9,18 @@ import cbor2
 from ptm3d import webapp
 from ptm3d.payload_io import CborPayloadWriter, JsonPayloadWriter
 
+CONTRAST_STATS = {
+    "A_vs_B": {"sig_count": 1, "max_log2fc": -2.0},
+    "C_vs_B": {"sig_count": 1, "max_log2fc": 0.3},
+}
+
 REPORT = webapp.ProteinReport(
     gene_name="MAPK1",
     uniprot_acc="P28482",
     ptm_count=3,
     sig_count=2,
     max_log2fc=-2.0,
+    contrast_stats=CONTRAST_STATS,
     data_file="data/MAPK1_P28482.cbor",
     pml_file="MAPK1_P28482_pymol.pml",
 )
@@ -25,6 +31,7 @@ REPORT_DICT = {
     "ptm_count": 3,
     "sig_count": 2,
     "max_log2fc": -2.0,
+    "contrast_stats": CONTRAST_STATS,
     "data_file": "data/MAPK1_P28482.cbor",
     "pml_file": "MAPK1_P28482_pymol.pml",
 }

@@ -6,6 +6,32 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- GSEA category selector in the table view. `ptm3d --enrichment <json>...` takes the
+  GSEAResult JSON files prophosqua now writes (PTM-SEA, KinaseLib, MEA), matches their
+  member sequence windows against the PTM table (the site-category association is the
+  N:M relation on the canonical upper-case window, so paralog sites sharing a window
+  all inherit the membership), and writes a compact `data/categories.*` index. The app
+  gains a category table: selecting a kinase/signature filters the protein and site
+  tables to its members, while the figure keeps drawing all sites and marks the members
+  (accent color, grey unlabeled context). A member-mode toggle switches between the
+  leading edge and the full mapped set; a color toggle switches spheres between log2FC
+  and category coloring (auto-set on select/deselect); a "Cat." column shows per site
+  how many categories it belongs to; the category table reports "sites in catalog /
+  total member sites" so partial catalogs are visible, not silent.
+- A global contrast dropdown in the toolbar scopes the category table, the site table,
+  the 3D panels (one per contrast under "All contrasts"), and the protein table's
+  Sig./Max FC columns, which now come from per-contrast stats in the catalog
+  (`contrast_stats`).
+
+### Changed (unreleased)
+
+- The pipeline now processes **all proteins with at least one significant site** by
+  default; `--max_proteins` remains as an explicit cap (used for tests and the example).
+- The table view's layout: three stacked tables on the left (categories, proteins,
+  sites — all seven site columns kept, compact fonts), the 3D viewer fills the right.
+- With more than 50 sites drawn in one panel, site labels are shown only for category
+  members and the highlighted site, keeping large proteins legible and fast.
+
 - A second browser app, `lit.html`, where all data selection lives in two Tabulator
   tables: a protein catalog table (row click loads the protein) and a PTM site table
   with header filters — a contrast dropdown, an FDR `<=` significance filter, a

@@ -18,9 +18,12 @@ def run(
     *,
     input_file: Annotated[Path, Parameter(name=("--input", "-i"))],
     output_dir: Annotated[Path, Parameter(name=("--output_dir", "-o"))] = Path("output_3d"),
-    max_proteins: Annotated[int, Parameter(name=("--max_proteins", "-m"))] = 10,
+    max_proteins: Annotated[int | None, Parameter(name=("--max_proteins", "-m"))] = None,
     proteins: Annotated[
         list[str] | None, Parameter(name=("--proteins", "-p"), consume_multiple=True)
+    ] = None,
+    enrichment: Annotated[
+        list[Path] | None, Parameter(name=("--enrichment", "-e"), consume_multiple=True)
     ] = None,
     html: bool = True,
     data_format: Annotated[Literal["cbor", "json"], Parameter(name="--format")] = "cbor",
@@ -30,8 +33,11 @@ def run(
     Args:
         input_file: Path to PTM results Excel/CSV/TSV file.
         output_dir: Directory for the generated data, app, HTML, and PyMOL files.
-        max_proteins: Maximum number of top proteins to process.
+        max_proteins: Cap on the number of top proteins; by default every protein
+            with a significant site is processed.
         proteins: Specific UniProt accessions to process.
+        enrichment: GSEAResult JSON files from prophosqua (PTM-SEA, KinaseLib, MEA)
+            for the app's category selector.
         html: Also write a standalone HTML dashboard per protein (--no-html to skip).
         data_format: On-disk format for the app's data files and catalog.
     """
@@ -42,6 +48,7 @@ def run(
         target_proteins=proteins,
         html_reports=html,
         writer=payload_writer_for(data_format),
+        enrichment_files=enrichment,
     )
 
 

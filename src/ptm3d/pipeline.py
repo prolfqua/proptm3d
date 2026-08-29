@@ -8,6 +8,7 @@ import polars as pl
 from loguru import logger
 
 from ptm3d.data_loader import filter_ptm_data, load_ptm_data
+from ptm3d.enrichment_loader import build_categories_payload, load_gsea_results
 from ptm3d.payload_io import CborPayloadWriter, PayloadWriter
 from ptm3d.protein_data import build_protein_payload
 from ptm3d.pymol_exporter import generate_pymol_script
@@ -21,11 +22,39 @@ from ptm3d.web_visualizer import generate_interactive_html
 from ptm3d.webapp import ProteinReport, install_app, write_catalog
 
 
-def _select_targets(df: pl.DataFrame, max_proteins: int, min_fdr: float) -> list[str]:
-    """Rank proteins by their count of significant PTM sites and keep the top N."""
+def _select_targets(df: pl.DataFrame, max_proteins: int | None, min_fdr: float) -> list[str]:
+    """Rank proteins by their count of significant PTM sites.
+
+    Returns every protein with at least one significant site; ``max_proteins``
+    caps that to the top N (the testing default is uncapped production use).
+    """
     sig_df = df.filter(pl.col("fdr") <= min_fdr) if "fdr" in df.columns else df
     counts = sig_df["uniprot_acc"].drop_nulls().value_counts(sort=True)
-    return counts["uniprot_acc"].head(max_proteins).to_list()
+    accs = counts["uniprot_acc"]
+    if max_proteins is not None:
+        accs = accs.head(max_proteins)
+    return accs.to_list()
+
+
+def _max_abs_log2fc(frame: pl.DataFrame) -> float | None:
+    """Signed log2FC of the site with the largest absolute fold change."""
+    if "log2fc" not in frame.columns:
+        return None
+    fold_changes = frame["log2fc"].drop_nulls()
+    if not len(fold_changes):
+        return None
+    return float(fold_changes[fold_changes.abs().arg_max()])
+
+
+def _contrast_stats(prot_df: pl.DataFrame, min_fdr: float) -> dict[str, dict]:
+    """Per-contrast significant-site count and max fold change of one protein."""
+    if "contrast" not in prot_df.columns:
+        return {}
+    stats: dict[str, dict] = {}
+    for (contrast,), group in prot_df.group_by("contrast"):
+        sig = group.filter(pl.col("fdr") <= min_fdr).height if "fdr" in group.columns else 0
+        stats[str(contrast)] = {"sig_count": sig, "max_log2fc": _max_abs_log2fc(group)}
+    return stats
 
 
 def _process_protein(
@@ -68,18 +97,13 @@ def _process_protein(
     generate_pymol_script(pdb_path, prot_df, output_dir / pml_file, protein_name=gene_name)
 
     sig_count = prot_df.filter(pl.col("fdr") <= min_fdr).height if "fdr" in prot_df.columns else 0
-    fold_changes = (
-        prot_df["log2fc"].drop_nulls()
-        if "log2fc" in prot_df.columns
-        else pl.Series(dtype=pl.Float64)
-    )
-    max_log2fc = float(fold_changes[fold_changes.abs().arg_max()]) if len(fold_changes) else None
     return ProteinReport(
         gene_name=gene_name,
         uniprot_acc=acc,
         ptm_count=prot_df.height,
         sig_count=sig_count,
-        max_log2fc=max_log2fc,
+        max_log2fc=_max_abs_log2fc(prot_df),
+        contrast_stats=_contrast_stats(prot_df, min_fdr),
         data_file=data_file,
         pml_file=pml_file,
     )
@@ -88,11 +112,12 @@ def _process_protein(
 def run_ptm3d_pipeline(
     input_file: Path | str,
     output_dir: Path | str,
-    max_proteins: int = 10,
+    max_proteins: int | None = None,
     min_fdr: float = 0.05,
     target_proteins: list[str] | None = None,
     html_reports: bool = True,
     writer: PayloadWriter | None = None,
+    enrichment_files: list[Path] | None = None,
 ) -> Path:
     """Run the end-to-end 3D PTM and log2FC visualizer pipeline.
 
@@ -105,11 +130,16 @@ def run_ptm3d_pipeline(
     Args:
         input_file: PTM results table (Excel/CSV/TSV).
         output_dir: Directory for the generated output.
-        max_proteins: Number of top significant proteins when no targets are given.
+        max_proteins: Cap on the number of top significant proteins when no targets
+            are given; None (the production default) processes every protein with a
+            significant site.
         min_fdr: FDR threshold used for protein ranking and significance counts.
         target_proteins: Explicit UniProt accessions to process instead of ranking.
         html_reports: Also write a standalone ``<gene>_<acc>_3d.html`` per protein.
         writer: Serializer for the data files and catalog (defaults to CBOR).
+        enrichment_files: GSEAResult JSON files written by prophosqua (PTM-SEA,
+            KinaseLib, MEA); when given, the category index ``data/categories.*``
+            is written for the browser app's category selector.
 
     Returns:
         The path of the browser app entry point (``index.html``).
@@ -153,6 +183,12 @@ def run_ptm3d_pipeline(
         logger.info("Saved {} and {}", report.data_file, report.pml_file)
 
     write_catalog(out_dir, reports, writer)
+    if enrichment_files:
+        enrichment = load_gsea_results(enrichment_files)
+        catalog_accs = {report.uniprot_acc for report in reports}
+        categories = build_categories_payload(enrichment, df, catalog_accs)
+        categories_path = writer.write(categories, out_dir / "data" / "categories")
+        logger.info("Wrote category index {}", categories_path)
     install_app(out_dir)
     logger.info("Browser app written to {}; view it with: ptm3d serve {}", out_dir, out_dir)
     return out_dir / "index.html"

@@ -58,14 +58,24 @@
         .toolbar .status { margin-left: auto; font-size: 0.85rem; color: var(--text-muted); }
 
         .main-row { display: flex; flex: 1; min-height: 0; }
-        .protein-pane {
-            width: 400px;
+        .left-col {
+            width: 520px;
             flex: none;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
             border-right: 1px solid var(--border-color);
             background-color: var(--card-bg);
         }
-        .right-col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-        .viewer-host { flex: 1; background-color: #0b0f19; min-height: 200px; }
+        .categories-pane {
+            flex: 0 0 30%;
+            min-height: 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .categories-pane.hidden { display: none; }
+        .protein-pane { flex: 1 1 30%; min-height: 0; border-bottom: 1px solid var(--border-color); }
+        .sites-pane { flex: 0 0 36%; min-height: 0; }
+        .viewer-host { flex: 1; min-width: 0; background-color: #0b0f19; min-height: 200px; }
         #viewers { display: flex; height: 100%; }
         .viewer-panel {
             flex: 1;
@@ -87,13 +97,9 @@
         }
         .mol-host { width: 100%; height: 100%; }
 
-        .sites-pane {
-            height: 300px;
-            border-top: 1px solid var(--border-color);
-            background-color: var(--card-bg);
-        }
-        #proteinTable, #ptmTable { height: 100%; }
-        .tabulator { font-size: 0.85rem; }
+        #proteinTable, #ptmTable, #categoriesTable { height: 100%; }
+        .tabulator { font-size: 0.72rem; }
+        .tabulator .tabulator-cell, .tabulator .tabulator-col { padding: 3px 4px; }
         .tabulator-row.tabulator-selected { background-color: #0369a1; }
     </style>
 </head>

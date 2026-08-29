@@ -55,3 +55,23 @@ export async function loadCatalog (dataRoot = 'data') {
   }
   throw new Error(`No catalog found under ${dataRoot}/ - run the ptm3d pipeline first.`)
 }
+
+/**
+ * Locate and decode the enrichment category index, if the run has one.
+ *
+ * @param {string} dataRoot Directory holding the data files.
+ * @returns {Promise<object|null>} The categories payload, or null when the run
+ *   was generated without enrichment results.
+ */
+export async function loadCategories (dataRoot = 'data') {
+  for (const name of ['categories.cbor', 'categories.json']) {
+    const response = await fetch(`${dataRoot}/${name}`, { cache: 'no-cache' })
+    if (response.ok) {
+      if (name.endsWith('.cbor')) {
+        return decode(new Uint8Array(await response.arrayBuffer()))
+      }
+      return response.json()
+    }
+  }
+  return null
+}

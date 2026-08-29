@@ -37,6 +37,8 @@ def test_run_pipeline_generates_all_outputs(tmp_path, input_csv, pdb_file, monke
     assert entry["uniprot_acc"] == "P28482"
     assert entry["sig_count"] == 2  # 2 of 3 sites have FDR <= 0.05.
     assert entry["max_log2fc"] == -2.0  # T3 has the largest |log2FC| of 1.5, -2.0, 0.3.
+    assert entry["contrast_stats"]["A_vs_B"] == {"sig_count": 1, "max_log2fc": -2.0}
+    assert entry["contrast_stats"]["C_vs_B"] == {"sig_count": 1, "max_log2fc": 0.3}
     assert entry["data_file"] == "data/MAPK1_P28482.cbor"
 
 
@@ -88,6 +90,62 @@ def test_run_pipeline_with_explicit_targets(tmp_path, input_csv, pdb_file, monke
     assert (out_dir / "data" / "MAPK1_P28482.cbor").exists()
     # Q00000 has no PTM records and is skipped before fetching.
     assert not list(out_dir.glob("**/*Q00000*"))
+
+
+def enrichment_json_file(tmp_path):
+    """A GSEAResult JSON whose member windows match the ptm_frame fixture."""
+    doc = {
+        "data": {
+            "A_vs_B": {
+                "contrast": "A_vs_B",
+                "gene_pool": {},
+                "categories": {
+                    "MEA": {
+                        "category": "MEA",
+                        "contrast": "A_vs_B",
+                        "terms": [
+                            {
+                                "term_id": "CDK2",
+                                "category": "MEA",
+                                "description": "CDK2",
+                                "enrichment_score": -1.9,
+                                "direction": "bottom",
+                                "fdr": 0.003,
+                                "method": "mea",
+                                "genes_mapped": 2,
+                                "genes_in_set": 3,
+                                "gene_ids": ["AASAA", "ATTAA", "ZZZZZ"],
+                                "leading_edge_ids": ["ATTAA"],
+                            }
+                        ],
+                    }
+                },
+            }
+        },
+        "rank_lists": {},
+    }
+    path = tmp_path / "MEA_DPA_results.json"
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    return path
+
+
+def test_run_pipeline_with_enrichment(tmp_path, input_csv, pdb_file, monkeypatch):
+    monkeypatch.setattr(pipeline, "fetch_structure", lambda acc, cache_dir: pdb_file)
+    out_dir = tmp_path / "output"
+
+    pipeline.run_ptm3d_pipeline(
+        input_csv, out_dir, enrichment_files=[enrichment_json_file(tmp_path)]
+    )
+
+    categories = cbor2.loads((out_dir / "data" / "categories.cbor").read_bytes())
+    assert categories["sources"] == ["MEA"]
+    block = categories["contrasts"]["A_vs_B"]
+    (entry,) = block["terms"]
+    assert entry["term_id"] == "CDK2"
+    assert {block["windows"][i] for i in entry["members"]} == {"AASAA", "ATTAA"}
+    assert [block["proteins"][i] for i in entry["members_proteins"]] == ["P28482"]
+    assert entry["members_sites_catalog"] == 2
+    assert entry["leading_sites_catalog"] == 1
 
 
 def test_cli_main(tmp_path, input_csv, pdb_file, monkeypatch):

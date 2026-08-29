@@ -48,6 +48,7 @@ Dependency direction is `cli -> pipeline -> leaf modules`, enforced by the Impor
 | `structure_fetcher.py` | AlphaFold DB API access and PDB caching; raises `StructureFetchError` on any retrieval failure |
 | `structural_context.py` | Parse CA atoms from PDB (pLDDT is in the B-factor column), CA-neighbor exposure score (`ppse`), IDR annotation |
 | `payload_io.py` | `PayloadWriter` protocol, `JsonPayloadWriter`/`CborPayloadWriter`, and the `payload_writer_for` factory — the format decision is made once at the CLI and injected |
+| `enrichment_loader.py` | Parses the string_gsea GSEAResult JSONs prophosqua writes (`--enrichment`), matches member sequence windows against the PTM table (N:M via the canonical upper-case window), and builds the compact `data/categories.*` index (per contrast: window/protein lists, terms with index references and leading-edge + full-set site counts) |
 | `protein_data.py` | Builds the per-protein data payloads (dicts); serialization is the injected writer's job |
 | `web_visualizer.py` | Standalone self-contained HTML dashboards (embedded data); reuses `protein_data.build_ptm_records` (declared one-way edge) |
 | `pymol_exporter.py` | `.pml` scripts coloring PTM residues by log2FC on a green-white-red scale |
@@ -68,6 +69,11 @@ monkeypatched) and build synthetic PDB content via the `conftest.py` fixtures.
 - Keep `src/ptm3d/__init__.py` empty; import from concrete modules.
 - The pipeline skips a protein only on `StructureFetchError`; all other errors must propagate. Do not add broad
   exception handlers.
+- Protein selection default: **all proteins with at least one significant site**; `--max_proteins` is the explicit
+  testing/limit cap. The catalog carries per-contrast stats (`contrast_stats`) for the app's contrast dropdown.
+- Enrichment member matching is an exact match on the canonical upper-case sequence window. Windows trimmed to
+  11/13-mers (PTM-SEA `trim_to < 15`) will not match the 15-mer table windows — the term then shows 0 sites in the
+  category table rather than failing.
 - Data and visualization stay separate: Python builds payloads and a `PayloadWriter` (CBOR default, JSON via
   `--format json`) serializes them; all rendering logic lives in `assets/`. The apps' external requests are the
   3Dmol.js script from `https://3dmol.org` and the pinned jsdelivr modules re-exported by `vendor/`; the data files

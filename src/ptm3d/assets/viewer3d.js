@@ -34,7 +34,9 @@ export function cartoonStyleFor (styleChoice) {
  * Render PTM sites as colored spheres with labels on the current model.
  *
  * The highlighted site (if any) gets a larger sphere and a bolder label so it can
- * be picked out without changing the zoom level.
+ * be picked out without changing the zoom level. A record carrying `dim: true` is
+ * drawn as unlabeled, translucent context (used while a category is selected: the
+ * figure keeps every site visible and only marks the members).
  *
  * @param {object} viewer A 3Dmol viewer with one model loaded.
  * @param {Array<object>} ptms PTM records carrying res_num, color, and coordinates.
@@ -54,20 +56,22 @@ export function renderPtmSites (viewer, ptms, styleChoice, onSelect, highlightRe
     if (p.x !== null && p.y !== null && p.z !== null) {
       viewer.addSphere({
         center: { x: p.x, y: p.y, z: p.z },
-        radius: highlighted ? 5.0 : 3.2,
+        radius: highlighted ? 5.0 : p.dim ? 2.0 : 3.2,
         color: p.color,
-        alpha: 0.95
+        alpha: p.dim ? 0.45 : 0.95
       })
-      viewer.addLabel(`${p.mod_aa}${p.res_num}`, {
-        position: { x: p.x, y: p.y, z: p.z },
-        backgroundColor: highlighted ? 'rgba(56,189,248,0.9)' : 'rgba(15,23,42,0.85)',
-        fontColor: highlighted ? '#0f172a' : p.color,
-        fontSize: highlighted ? 14 : 11,
-        showBackground: true
-      })
+      if (highlighted || (!p.dim && !p.nolabel)) {
+        viewer.addLabel(`${p.mod_aa}${p.res_num}`, {
+          position: { x: p.x, y: p.y, z: p.z },
+          backgroundColor: highlighted ? 'rgba(56,189,248,0.9)' : 'rgba(15,23,42,0.85)',
+          fontColor: highlighted ? '#0f172a' : p.color,
+          fontSize: highlighted ? 14 : 11,
+          showBackground: true
+        })
+      }
     }
 
-    viewer.addStyle(sel, { sphere: { color: p.color, scale: 0.8 } })
+    viewer.addStyle(sel, { sphere: { color: p.color, scale: p.dim ? 0.5 : 0.8 } })
     viewer.setClickable(sel, true, () => onSelect(p))
   })
   viewer.render()
