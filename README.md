@@ -19,7 +19,8 @@ The structural context metrics and visual principles are inspired by Bludau et a
   confident), yellow (50-70, low), orange (<= 50, very low / disordered). A sidebar dropdown switches to an
   N-to-C rainbow spectrum or monochrome slate.
 - **log2FC site encoding**: PTM sites are rendered as spheres at their residue coordinates with text callouts,
-  colored on a blue-white-red scale (blue = down-regulated, white = unchanged, red = up-regulated).
+  colored on the classic green-white-red scale (green = down-regulated, white = unchanged, red = up-regulated),
+  chosen to stay distinguishable from the blue/cyan pLDDT backbone coloring.
 - **Linked 1D-3D views**: an interactive 1D N-to-C sequence track is synchronized with the 3D viewer; clicking a
   PTM site on the track centers, zooms, and highlights the corresponding residue in 3D.
 - **Multi-contrast dropdown**: switch between experimental condition comparisons (e.g. `ConditionA_vs_Control`

@@ -29,7 +29,7 @@ def test_generate_pymol_script(tmp_path, pdb_file, ptm_frame):
 
 def test_fold_change_rgb():
     assert pymol_exporter._fold_change_rgb(2.0) == (1.0, 0.0, 0.0)
-    assert pymol_exporter._fold_change_rgb(-2.0) == (0.0, 0.0, 1.0)
+    assert pymol_exporter._fold_change_rgb(-2.0) == (0.0, 1.0, 0.0)
     assert pymol_exporter._fold_change_rgb(0.0) == (1.0, 1.0, 1.0)
 
 
@@ -78,7 +78,7 @@ def test_generate_interactive_html(tmp_path, pdb_file, ptm_frame):
 def test_fold_change_hex():
     assert web_visualizer._fold_change_hex(0.0) == "#ffffff"
     assert web_visualizer._fold_change_hex(2.5).startswith("#ff")
-    assert web_visualizer._fold_change_hex(-2.5).endswith("ff")
+    assert web_visualizer._fold_change_hex(-2.5)[3:5] == "ff"  # Down-regulated is green.
 
 
 def test_write_protein_data_site_outside_structure(tmp_path, pdb_file, ptm_frame):

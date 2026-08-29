@@ -37,6 +37,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- The log2FC color scale is now the classic green-white-red (green = down, red = up)
+  instead of blue-white-red, in both browser apps, the standalone HTML dashboards,
+  and the PyMOL scripts — it no longer clashes with the blue/cyan pLDDT backbone
+  coloring.
 - In the table view, the protein catalog is a full-height panel on the left (viewer
   and site table stack to its right) and gains a "Max FC" column: the signed log2FC
   of each protein's strongest site, recorded as `max_log2fc` in the catalog.

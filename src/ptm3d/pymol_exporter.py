@@ -11,11 +11,11 @@ _SIGNIFICANT_FDR = 0.05
 
 
 def _fold_change_rgb(log2fc: float) -> tuple[float, float, float]:
-    """Map a log2FC value onto a blue-white-red gradient as RGB in [0, 1]."""
+    """Map a log2FC value onto a green-white-red gradient as RGB in [0, 1]."""
     intensity = min(1.0, abs(log2fc) / _LOG2FC_COLOR_SCALE)
     if log2fc > 0:
         return 1.0, 1.0 - intensity, 1.0 - intensity
-    return 1.0 - intensity, 1.0 - intensity, 1.0
+    return 1.0 - intensity, 1.0, 1.0 - intensity
 
 
 def generate_pymol_script(

@@ -50,7 +50,7 @@ Dependency direction is `cli -> pipeline -> leaf modules`, enforced by the Impor
 | `payload_io.py` | `PayloadWriter` protocol, `JsonPayloadWriter`/`CborPayloadWriter`, and the `payload_writer_for` factory — the format decision is made once at the CLI and injected |
 | `protein_data.py` | Builds the per-protein data payloads (dicts); serialization is the injected writer's job |
 | `web_visualizer.py` | Standalone self-contained HTML dashboards (embedded data); reuses `protein_data.build_ptm_records` (declared one-way edge) |
-| `pymol_exporter.py` | `.pml` scripts coloring PTM residues by log2FC on a blue-white-red scale |
+| `pymol_exporter.py` | `.pml` scripts coloring PTM residues by log2FC on a green-white-red scale |
 | `webapp.py` | `ProteinReport`, the `data/catalog.*` writer, copying the static app assets, and the local HTTP server |
 | `assets/` | Two static browser apps: `index.html`+`app.js` (classic cards) and `lit.html`+`lit-app.js` (Lit + Tabulator table view), sharing `payload.js` (fetch/decode, cbor-x), `color.js`, `viewer3d.js`; `vendor/` holds pinned CDN re-export shims (lit 3.2.1, cbor-x 1.6.6, tabulator 6.5.2 — same stack as BioBeamer/rawDIAGQC) |
 

@@ -19,13 +19,13 @@ _LOG2FC_COLOR_DAMPING = 0.8
 
 
 def _fold_change_hex(log2fc: float) -> str:
-    """Map a log2FC value onto a blue-white-red gradient as a hex color."""
+    """Map a log2FC value onto a green-white-red gradient as a hex color."""
     intensity = min(1.0, abs(log2fc) / _LOG2FC_COLOR_SCALE)
     faded = int(255 * (1 - intensity * _LOG2FC_COLOR_DAMPING))
     if log2fc > 0:
         r_val, g_val, b_val = 255, faded, faded
     else:
-        r_val, g_val, b_val = faded, faded, 255
+        r_val, g_val, b_val = faded, 255, faded
     return f"#{r_val:02x}{g_val:02x}{b_val:02x}"
 
 
@@ -168,7 +168,7 @@ def generate_interactive_html(
             flex: 1;
             margin: 0 10px;
             border-radius: 6px;
-            background: linear-gradient(to right, #3b82f6, #f8fafc, #ef4444);
+            background: linear-gradient(to right, #22c55e, #f8fafc, #ef4444);
         }}
         .legend-text {{ font-size: 0.75rem; color: var(--text-muted); }}
 
