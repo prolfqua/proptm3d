@@ -1,0 +1,65 @@
+"""Command-line interface for the ptm3d visualizer pipeline."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Annotated, Literal
+
+from cyclopts import App, Parameter
+
+from ptm3d import pipeline, webapp
+from ptm3d.payload_io import payload_writer_for
+
+app = App(name="ptm3d", help="3D PTM & log2-Fold-Change Visualizer")
+
+
+@app.default
+def run(
+    *,
+    input_file: Annotated[Path, Parameter(name=("--input", "-i"))],
+    output_dir: Annotated[Path, Parameter(name=("--output_dir", "-o"))] = Path("output_3d"),
+    max_proteins: Annotated[int, Parameter(name=("--max_proteins", "-m"))] = 10,
+    proteins: Annotated[
+        list[str] | None, Parameter(name=("--proteins", "-p"), consume_multiple=True)
+    ] = None,
+    html: bool = True,
+    data_format: Annotated[Literal["cbor", "json"], Parameter(name="--format")] = "cbor",
+) -> None:
+    """Run the ptm3d pipeline.
+
+    Args:
+        input_file: Path to PTM results Excel/CSV/TSV file.
+        output_dir: Directory for the generated data, app, HTML, and PyMOL files.
+        max_proteins: Maximum number of top proteins to process.
+        proteins: Specific UniProt accessions to process.
+        html: Also write a standalone HTML dashboard per protein (--no-html to skip).
+        data_format: On-disk format for the app's data files and catalog.
+    """
+    pipeline.run_ptm3d_pipeline(
+        input_file,
+        output_dir,
+        max_proteins=max_proteins,
+        target_proteins=proteins,
+        html_reports=html,
+        writer=payload_writer_for(data_format),
+    )
+
+
+@app.command
+def serve(directory: Path = Path("output_3d"), *, port: int = 8000) -> None:
+    """Serve a generated output directory so the visualizer can run in the browser.
+
+    Args:
+        directory: The pipeline output directory to serve.
+        port: TCP port to listen on.
+    """
+    webapp.serve(directory, port=port)
+
+
+def main() -> None:
+    """Entry point for the ptm3d console script."""
+    app()
+
+
+if __name__ == "__main__":
+    main()

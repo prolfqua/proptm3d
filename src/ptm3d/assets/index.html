@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D PTM & log2FC Visualizer</title>
+    <script src="https://3dmol.org/build/3Dmol-min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --accent-blue: #38bdf8;
+            --accent-red: #f87171;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --border-color: #334155;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+        header {
+            background-color: var(--card-bg);
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        header h1 { font-size: 1.3rem; font-weight: 700; color: #ffffff; }
+        header .meta { font-size: 0.9rem; color: var(--text-muted); }
+
+        .main-container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .viewer-pane {
+            flex: 1;
+            position: relative;
+            background-color: #0b0f19;
+        }
+        #g3d_viewer {
+            width: 100%;
+            height: 100%;
+        }
+
+        .side-pane {
+            width: 380px;
+            background-color: var(--card-bg);
+            border-left: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            padding: 1.2rem;
+            overflow-y: auto;
+        }
+
+        .card {
+            background-color: #0f172a;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        .card-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--accent-blue);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.6rem;
+        }
+
+        .app-select {
+            width: 100%;
+            padding: 0.6rem;
+            background-color: #1e293b;
+            color: var(--text-main);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-size: 0.9rem;
+            margin-bottom: 1rem;
+        }
+
+        .pml-link {
+            font-size: 0.8rem;
+            color: var(--accent-blue);
+            text-decoration: none;
+        }
+        .pml-link:hover { text-decoration: underline; }
+
+        .legend {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 0.5rem;
+        }
+        .gradient-bar {
+            height: 12px;
+            flex: 1;
+            margin: 0 10px;
+            border-radius: 6px;
+            background: linear-gradient(to right, #3b82f6, #f8fafc, #ef4444);
+        }
+        .legend-text { font-size: 0.75rem; color: var(--text-muted); }
+
+        .plddt-legend {
+            margin-top: 0.5rem;
+            font-size: 0.75rem;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4px;
+        }
+        .plddt-item {
+            display: flex;
+            align-items: center;
+            color: var(--text-muted);
+        }
+        .plddt-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 6px;
+            display: inline-block;
+        }
+
+        .ptm-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+            margin-top: 0.5rem;
+        }
+        .ptm-table th, .ptm-table td {
+            padding: 0.5rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .ptm-table tr:hover {
+            background-color: #334155;
+            cursor: pointer;
+        }
+        .ptm-badge {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 600;
+            color: #000;
+        }
+
+        .bottom-pane {
+            height: 180px;
+            background-color: var(--card-bg);
+            border-top: 1px solid var(--border-color);
+            padding: 1rem 1.5rem;
+            display: flex;
+            flex-direction: column;
+        }
+        .bottom-pane h3 {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+        }
+        .nto-c-track {
+            flex: 1;
+            position: relative;
+            background-color: #0f172a;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            padding: 0 10px;
+            overflow-x: auto;
+        }
+        .backbone-line {
+            position: absolute;
+            top: 50%;
+            left: 20px;
+            right: 20px;
+            height: 4px;
+            background-color: #334155;
+            border-radius: 2px;
+        }
+        .ptm-pin {
+            position: absolute;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            top: 50%;
+            cursor: pointer;
+            box-shadow: 0 0 6px rgba(0,0,0,0.5);
+            transition: transform 0.2s, border-width 0.2s;
+            border: 2px solid #ffffff;
+        }
+        .ptm-pin:hover {
+            transform: translate(-50%, -50%) scale(1.5);
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div>
+            <h1>3D PTM & log2-Fold-Change Visualizer</h1>
+            <div class="meta" id="proteinMeta">Loading catalog...</div>
+        </div>
+        <div>
+            <a href="lit.html" style="font-size: 0.85rem; color: var(--accent-blue); margin-right: 1rem;">Table view</a>
+            <span style="font-size: 0.85rem; color: var(--text-muted);">AlphaFold DB + FGCZ prophosqua Integration</span>
+        </div>
+    </header>
+
+    <div class="main-container">
+        <div class="viewer-pane">
+            <div id="g3d_viewer"></div>
+        </div>
+
+        <div class="side-pane">
+            <div class="card">
+                <div class="card-title">Protein</div>
+                <select id="proteinSelect" class="app-select" style="margin-bottom: 0.5rem;"></select>
+                <a id="pmlLink" class="pml-link" download>Download PyMOL script</a>
+            </div>
+
+            <div class="card">
+                <div class="card-title">Backbone 3D Color Style</div>
+                <select id="styleSelect" class="app-select" style="margin-bottom: 0.5rem;">
+                    <option value="plddt" selected>AlphaFold Confidence (pLDDT)</option>
+                    <option value="spectrum">N-to-C Rainbow Spectrum (Fallback)</option>
+                    <option value="slate">Monochrome Slate Gray</option>
+                </select>
+                <div id="plddtLegend" class="plddt-legend">
+                    <div class="plddt-item"><span class="plddt-dot" style="background:#1d4ed8;"></span> Very High (>90)</div>
+                    <div class="plddt-item"><span class="plddt-dot" style="background:#38bdf8;"></span> Confident (70-90)</div>
+                    <div class="plddt-item"><span class="plddt-dot" style="background:#facc15;"></span> Low (50-70)</div>
+                    <div class="plddt-item"><span class="plddt-dot" style="background:#f97316;"></span> Very Low (<=50)</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">Condition Comparison</div>
+                <select id="contrastSelect" class="app-select"></select>
+                <div class="legend">
+                    <span class="legend-text">Down (-2.5 log2FC)</span>
+                    <div class="gradient-bar"></div>
+                    <span class="legend-text">Up (+2.5 log2FC)</span>
+                </div>
+            </div>
+
+            <div class="card" id="infoCard">
+                <div class="card-title">Residue Inspection</div>
+                <p id="infoText" style="font-size: 0.85rem; color: var(--text-muted);">Click or hover over any PTM site on the 3D model or N-to-C track to inspect details.</p>
+            </div>
+
+            <div class="card" style="flex: 1; overflow-y: auto;">
+                <div class="card-title">Identified PTM Sites</div>
+                <table class="ptm-table">
+                    <thead>
+                        <tr>
+                            <th>Site</th>
+                            <th>log2FC</th>
+                            <th>FDR</th>
+                            <th>pLDDT</th>
+                        </tr>
+                    </thead>
+                    <tbody id="ptmTableBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="bottom-pane">
+        <h3>N-to-C Linear Sequence PTM Track</h3>
+        <div class="nto-c-track" id="ntocTrack">
+            <div class="backbone-line"></div>
+        </div>
+    </div>
+
+    <script type="module" src="app.js"></script>
+</body>
+</html>

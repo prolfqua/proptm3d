@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D PTM Visualizer - Table View</title>
+    <script src="https://3dmol.org/build/3Dmol-min.js"></script>
+    <!--
+      Tabulator ships its stylesheet separately rather than inlining it, so this
+      link is load-bearing: without it the table renders as unstyled divs. Pinned
+      to the same version as vendor/tabulator.js.
+    -->
+    <link
+        rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.5.2/dist/css/tabulator_midnight.min.css"
+    />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --accent-blue: #38bdf8;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --border-color: #334155;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { height: 100%; }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            overflow: hidden;
+        }
+        ptm-app { display: flex; flex-direction: column; height: 100vh; }
+
+        .toolbar {
+            display: flex;
+            align-items: center;
+            gap: 0.8rem;
+            flex-wrap: wrap;
+            background-color: var(--card-bg);
+            border-bottom: 1px solid var(--border-color);
+            padding: 0.7rem 1.2rem;
+        }
+        .toolbar h1 { font-size: 1.05rem; font-weight: 700; margin-right: 0.5rem; }
+        .toolbar label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; }
+        .toolbar select {
+            padding: 0.4rem 0.5rem;
+            background-color: #0f172a;
+            color: var(--text-main);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-size: 0.85rem;
+        }
+        .toolbar a { color: var(--accent-blue); font-size: 0.85rem; text-decoration: none; }
+        .toolbar a:hover { text-decoration: underline; }
+        .toolbar .status { margin-left: auto; font-size: 0.85rem; color: var(--text-muted); }
+
+        .viewer-host { flex: 1; background-color: #0b0f19; min-height: 200px; }
+        #viewers { display: flex; height: 100%; }
+        .viewer-panel {
+            flex: 1;
+            min-width: 0;
+            position: relative;
+        }
+        .viewer-panel + .viewer-panel { border-left: 1px solid var(--border-color); }
+        .panel-label {
+            position: absolute;
+            top: 8px;
+            left: 12px;
+            z-index: 5;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--accent-blue);
+            background: rgba(15, 23, 42, 0.8);
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+        .mol-host { width: 100%; height: 100%; }
+
+        .table-host {
+            height: 320px;
+            border-top: 1px solid var(--border-color);
+            background-color: var(--card-bg);
+            display: flex;
+        }
+        .protein-pane {
+            width: 380px;
+            flex: none;
+            border-right: 1px solid var(--border-color);
+        }
+        .sites-pane { flex: 1; min-width: 0; }
+        #proteinTable, #ptmTable { height: 100%; }
+        .tabulator { font-size: 0.85rem; }
+        .tabulator-row.tabulator-selected { background-color: #0369a1; }
+    </style>
+</head>
+<body>
+    <ptm-app></ptm-app>
+    <noscript>This viewer is a JavaScript application and needs scripting enabled.</noscript>
+    <script type="module" src="lit-app.js"></script>
+</body>
+</html>

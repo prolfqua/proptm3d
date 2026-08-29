@@ -1,145 +1,199 @@
-# PTMvisualizer (`ptm3d`) 🧬✨
+# ptm3d
 
-**3D Protein Post-Translational Modification & $\text{log}_2\text{FC}$ Visualizer**
+**3D Protein Post-Translational Modification & log2FC Visualizer**
 
-`PTMvisualizer` (`ptm3d`) is a computational toolkit designed to bridge the gap between quantitative mass spectrometry proteomics (e.g. phosphoproteomics) and 3D protein structures. It ingests differential PTM quantification results (from pipelines such as **FGCZ `prophosqua`**) and maps identified modification sites along with their **$\text{log}_2$-fold-changes ($\text{log}_2\text{FC}$)** and **significance (FDR)** directly onto 3D atomic structures from **AlphaFold DB** and **RCSB PDB**.
+`ptm3d` is a computational toolkit that bridges quantitative mass spectrometry proteomics (e.g. phosphoproteomics)
+and 3D protein structures. It ingests differential PTM quantification results (from pipelines such as FGCZ
+`prophosqua`) and maps identified modification sites, their log2-fold-changes (log2FC), and significance (FDR)
+directly onto 3D atomic structures from AlphaFold DB.
 
-This project implements structural context metrics and visual principles inspired by **Isabell Bludau et al. (*PLoS Biology*, 2022)** (*"The structural context of posttranslational modifications at a proteome-wide scale"*).
+The structural context metrics and visual principles are inspired by Bludau et al. (*PLoS Biology*, 2022),
+*"The structural context of posttranslational modifications at a proteome-wide scale"*.
 
----
+## Key Features
 
-## 🌟 Key Features
+- **Automatic 3D structure retrieval**: queries the EBI AlphaFold DB API
+  (`https://alphafold.ebi.ac.uk/api/prediction/<uniprot_acc>`) to fetch full-length predicted structure models,
+  with local caching.
+- **AlphaFold confidence (pLDDT) backbone coloring** (default): dark blue (pLDDT > 90, very high), cyan (70-90,
+  confident), yellow (50-70, low), orange (<= 50, very low / disordered). A sidebar dropdown switches to an
+  N-to-C rainbow spectrum or monochrome slate.
+- **log2FC site encoding**: PTM sites are rendered as spheres at their residue coordinates with text callouts,
+  colored on a blue-white-red scale (blue = down-regulated, white = unchanged, red = up-regulated).
+- **Linked 1D-3D views**: an interactive 1D N-to-C sequence track is synchronized with the 3D viewer; clicking a
+  PTM site on the track centers, zooms, and highlights the corresponding residue in 3D.
+- **Multi-contrast dropdown**: switch between experimental condition comparisons (e.g. `ConditionA_vs_Control`
+  vs `ConditionB_vs_Control`) within the app.
+- **Structural context annotations**: AlphaFold pLDDT confidence, a CA-neighbor exposure score, and disordered
+  region detection.
+- **PyMOL export**: generates standalone `.pml` scripts for rendering publication-quality ray-traced figures in
+  PyMOL.
+- **Data/visualization separation**: the pipeline writes JSON + PDB data files; a static single-page JS app
+  renders them in the browser, with a protein selector fed by `data/catalog.json` (`ptm3d serve`).
 
-- 🧬 **Automatic 3D Structure Retrieval**: Queries the EBI AlphaFold DB API (`https://alphafold.ebi.ac.uk/api/prediction/<uniprot_acc>`) to fetch full-length predicted 3D structure models with local caching.
-- 🎨 **AlphaFold Confidence ($\text{pLDDT}$) Backbone Color Scheme (Default)**:
-  - 🟦 **Dark Blue**: Very High confidence ($\text{pLDDT} > 90$)
-  - 🩵 **Cyan**: Confident ($70 < \text{pLDDT} \le 90$)
-  - 💛 **Yellow**: Low confidence ($50 < \text{pLDDT} \le 70$)
-  - 🟧 **Orange**: Very Low confidence / IDR ($\text{pLDDT} \le 50$)
-  - *(Includes a dropdown selector in the sidebar to switch to N-to-C Rainbow Spectrum or Monochrome Slate).*
-- 🔴 **$\text{log}_2\text{FC}$ PTM Site Visual Encoding**: Renders PTM sites as 3D spheres at their exact $(x, y, z)$ residue coordinates with text callouts, color-coded by $\text{log}_2\text{FC}$:
-  - 🔵 **Blue**: Down-regulated modification ($\text{log}_2\text{FC} < 0$)
-  - ⚪ **White**: Unchanged modification ($\text{log}_2\text{FC} = 0$)
-  - 🔴 **Red**: Up-regulated modification ($\text{log}_2\text{FC} > 0$)
-- 🔄 **Dual 1D-3D Synchronization**: Interactive 1D N-to-C linear sequence track linked to the 3D structure viewer. Clicking or hovering over any PTM site on the 1D track automatically centers, zooms, and highlights the corresponding residue in 3D.
-- 📊 **Multi-Contrast Dropdown**: Switch dynamically between different experimental condition comparisons (e.g. `ConditionA_vs_Control` vs `ConditionB_vs_Control`) in the interactive HTML dashboard.
-- 🔬 **Structural Context Annotations**: Integrates AlphaFold $\text{pLDDT}$ confidence scores, prediction-aware part-sphere exposure ($\text{pPSE}$), and disordered region / activation loop detection.
-- 📸 **PyMOL Publishing Pipeline**: Programmatically generates standalone `.pml` scripts for rendering publication-ready 300+ DPI ray-traced figures in PyMOL.
-- 📂 **Proteome Catalog Index**: Automatically builds a master catalog (`index_3d.html`) linking all processed protein visualizers.
+## Quick Start
 
----
+### 1. Installation
 
-## 🚀 Quick Start
-
-### 1. Prerequisites & Installation
-
-Ensure you have Python 3.8+ installed. Install required dependencies:
+Python 3.11+ is required. With [uv](https://docs.astral.sh/uv/):
 
 ```bash
-pip install pandas openpyxl requests jinja2
+uv sync            # development environment in .venv
+# or install the package into another environment:
+pip install .
 ```
 
-### 2. Run from Command Line (CLI)
+### 2. Command line usage
 
-#### Process Top Significant Proteins in a Dataset:
+Process the top significant proteins in a dataset, then serve the result and open it in the browser:
+
 ```bash
-python3 -m ptm3d.cli --input PTM_o42260_PTManalysis/PTM_CF_DPU/CorrectFirst_PTM_usage_results.xlsx --output_dir output_3d --max_proteins 10
+ptm3d --input PTM_results.xlsx --output_dir output_3d --max_proteins 10
+ptm3d serve output_3d          # http://127.0.0.1:8000/
 ```
 
-#### Process Specific Target Proteins by UniProt Accession:
+Process specific target proteins by UniProt accession:
+
 ```bash
-python3 -m ptm3d.cli --input PTM_o42260_PTManalysis/PTM_CF_DPU/CorrectFirst_PTM_usage_results.xlsx --output_dir output_3d --proteins P28482 P12270 O60343
+ptm3d --input PTM_results.xlsx --output_dir output_3d --proteins P28482 P12270 O60343
 ```
 
-#### How Protein Selection & Multi-Contrasts Work:
-- **Automatic Selection (`--max_proteins`)**: By default, `ptm3d` filters the dataset for statistically significant modifications ($\text{FDR} \le 0.05$) and ranks proteins by their total count of significant PTM sites, selecting the top $N$ proteins.
-- **Multi-Contrast Inclusion**: Once a protein is selected, `ptm3d` automatically includes **all condition contrasts** for that protein in the interactive HTML report. Users can toggle between contrasts using the dropdown selector in the sidebar.
+(During development, prefix the commands with `uv run`.)
 
----
+There are two visualization paths:
 
-## 🐍 Python API Usage
+- **Data + browser apps** (primary): the pipeline writes per-protein data files and a catalog under
+  `data/` — CBOR by default, plain JSON with `--format json` — plus the cached AlphaFold PDB models
+  under `structures/`. Two static JS apps are copied into the output directory and fetch those files
+  at view time (which is why the folder must be served over HTTP: `ptm3d serve`, or any static file
+  server):
+  - `index.html` — the classic card-panel dashboard;
+  - `lit.html` — a table-centric view (Lit + Tabulator, the rawDIAGQC stack): a protein catalog table
+    and a PTM site table with contrast/FDR header filters; the 3D area mirrors the filtered or
+    selected rows, one panel per contrast.
+- **Standalone HTML** (kept for the moment): self-contained `<gene>_<acc>_3d.html` dashboards with the
+  data embedded, openable directly from disk without a server. Written by default; skip with
+  `--no-html`.
 
-You can also import `ptm3d` directly into your custom Python scripts or Jupyter notebooks:
+PyMOL `.pml` scripts are written in both cases.
+
+A small real dataset (mouse phospho, 20 proteins from a prophosqua `no_ERK_vs_ERK` analysis) ships in
+`examples/` for a quick demo:
+
+```bash
+ptm3d --input examples/PTM_no_ERK_vs_ERK_top20.csv --output_dir output_3d --max_proteins 5
+ptm3d serve output_3d
+```
+
+How protein selection and contrasts work:
+
+- **Automatic selection (`--max_proteins`)**: by default, `ptm3d` filters the dataset for statistically
+  significant modifications (FDR <= 0.05), ranks proteins by their count of significant PTM sites, and selects
+  the top N.
+- **Multi-contrast inclusion**: once a protein is selected, all condition contrasts for that protein are included
+  in the interactive HTML report and can be toggled via the sidebar dropdown.
+
+## Python API Usage
+
+`ptm3d` can also be used directly from Python scripts or notebooks:
+
+Import from the concrete modules (the package `__init__` is intentionally empty). All tables are
+[polars](https://pola.rs) DataFrames:
 
 ```python
-import ptm3d
+from ptm3d.data_loader import filter_ptm_data, load_ptm_data
+from ptm3d.protein_data import write_protein_data
+from ptm3d.pymol_exporter import generate_pymol_script
+from ptm3d.structural_context import annotate_structural_regions, calculate_ppse, parse_pdb_residues
+from ptm3d.structure_fetcher import fetch_structure
 
 # 1. Load and filter PTM dataset
-df = ptm3d.load_ptm_data("PTM_o42260_PTManalysis/PTM_CF_DPU/CorrectFirst_PTM_usage_results.xlsx")
-mapk1_df = ptm3d.filter_ptm_data(df, protein_acc="P28482")
+df = load_ptm_data("PTM_results.xlsx")
+mapk1_df = filter_ptm_data(df, protein_acc="P28482")
 
 # 2. Fetch AlphaFold 3D structure
-pdb_path = ptm3d.fetch_structure("P28482", cache_dir="output_3d/structures")
+pdb_path = fetch_structure("P28482", cache_dir="output_3d/structures")
 
-# 3. Compute structural metrics (pLDDT, pPSE side-chain exposure, IDRs)
-res_df = ptm3d.parse_pdb_residues(pdb_path)
-res_df = ptm3d.calculate_ppse(res_df)
-res_df = ptm3d.annotate_structural_regions(res_df)
+# 3. Compute structural metrics (pLDDT, exposure, IDRs)
+res_df = parse_pdb_residues(pdb_path)
+res_df = calculate_ppse(res_df)
+res_df = annotate_structural_regions(res_df)
 
-# 4. Generate Interactive 3D HTML Visualizer
-ptm3d.generate_interactive_html(
-    pdb_path=pdb_path,
-    ptm_df=mapk1_df,
-    res_df=res_df,
-    output_html_path="output_3d/MAPK1_P28482_3d.html",
+# 4. Write the protein's data file for the browser app
+write_protein_data(
+    mapk1_df,
+    res_df,
+    "output_3d/data/MAPK1_P28482.json",
     protein_acc="P28482",
-    gene_name="MAPK1"
+    gene_name="MAPK1",
+    pdb_file="structures/P28482.pdb",
 )
 
 # 5. Generate PyMOL script for publication figures
-ptm3d.generate_pymol_script(
+generate_pymol_script(
     pdb_path=pdb_path,
     ptm_df=mapk1_df,
     output_pml_path="output_3d/MAPK1_P28482_pymol.pml",
-    protein_name="MAPK1"
+    protein_name="MAPK1",
 )
 ```
 
----
+## Development
 
-## 📁 Input Data Schema
+```bash
+make sync     # install the locked dev environment
+make test     # tests with branch coverage
+make format   # format + autofix
+make check    # all merge-blocking gates (format, lint, deps, tests, build)
+```
 
-The `ptm3d` data loader automatically standardizes common output columns from `prophosqua`, MaxQuant, FragPipe, Spectronaut, or custom Excel/CSV/TSV files. Supported column mappings:
+Run `make help` for the full target list.
+
+## Input Data Schema
+
+The data loader standardizes common output columns from `prophosqua`, MaxQuant, FragPipe, Spectronaut, or custom
+Excel/CSV/TSV files. Supported column mappings:
 
 | Input Column Name | Standard Field | Description |
 | :--- | :--- | :--- |
-| `protein_Id`, `protein_id` | `uniprot_acc` | UniProt Accession (e.g. `sp\|P28482\|MK01_HUMAN` or `P28482`) |
+| `protein_Id`, `protein_id` | `uniprot_acc` | UniProt accession (e.g. `sp\|P28482\|MK01_HUMAN` or `P28482`) |
 | `posInProtein`, `position` | `pos_in_protein` | 1-indexed amino acid residue position |
 | `modAA` | `mod_aa` | Modified amino acid single-letter code (e.g. `S`, `T`, `Y`, `K`) |
-| `diff.site`, `log2FC`, `logFC` | `log2fc` | Quantitative $\text{log}_2$-fold-change between conditions |
-| `FDR.site`, `FDR` | `fdr` | False Discovery Rate / adjusted p-value |
-| `contrast` | `contrast` | Condition comparison name (e.g., `DF10_bFGF_vs_DF10`) |
-| `gene_name` | `gene_name` | Gene symbol (e.g., `MAPK1`) |
-| `SequenceWindow` | `sequence_window` | Peptide sequence window surrounding modification site |
+| `diff.site`, `log2FC`, `logFC` | `log2fc` | log2-fold-change between conditions |
+| `FDR.site`, `FDR` | `fdr` | False discovery rate / adjusted p-value |
+| `contrast` | `contrast` | Condition comparison name (e.g. `DF10_bFGF_vs_DF10`) |
+| `gene_name` | `gene_name` | Gene symbol (e.g. `MAPK1`) |
+| `SequenceWindow` | `sequence_window` | Peptide sequence window around the modification site |
 
----
+## Output Folder Structure
 
-## 📂 Output Folder Structure
-
-Running the pipeline populates the specified `--output_dir` (e.g., `output_3d/`):
+Running the pipeline populates the specified `--output_dir` (e.g. `output_3d/`):
 
 ```
 output_3d/
-├── index_3d.html               # Master catalog index linking all processed proteins
-├── MAPK1_P28482_3d.html        # Interactive 3Dmol.js + 1D N-to-C dashboard for MAPK1
-├── MAPK1_P28482_pymol.pml      # PyMOL script for high-res rendering
-├── TPR_P12270_3d.html          # Interactive dashboard for TPR
-├── TPR_P12270_pymol.pml        # PyMOL script for TPR
-└── structures/                 # Local cache of downloaded AlphaFold DB .pdb models
+├── index.html                  # Static browser app (entry point)
+├── app.js                      # Static browser app (logic; fetches the data files below)
+├── data/
+│   ├── catalog.json            # Run index: all processed proteins + their file names
+│   ├── MAPK1_P28482.json       # Per-protein PTM records and structural annotations
+│   └── TPR_P12270.json
+├── MAPK1_P28482_pymol.pml      # PyMOL script for high-resolution rendering
+├── TPR_P12270_pymol.pml
+└── structures/                 # Cached AlphaFold DB .pdb models, fetched by the app
     ├── P28482.pdb
     └── P12270.pdb
 ```
 
----
+Serve this folder over HTTP to use the app: `ptm3d serve output_3d [--port 8000]`.
 
-## 🔬 Scientific Background & References
+## References
 
-1. **Bludau I, Willems S, Zeng WF, Strauss MT, Hansen FM, Tanzer MC, Karayel O, Schulman BA, Mann M.** (2022). *The structural context of posttranslational modifications at a proteome-wide scale.* **PLoS Biol**, 20(5): e3001636. [doi:10.1371/journal.pbio.3001636](https://doi.org/10.1371/journal.pbio.3001636)
-2. **Functional Genomics Center Zurich (FGCZ)**. *prophosqua R Package for Differential PTM Analysis.*
-3. **Jumper J, et al.** (2021). *Highly accurate protein structure prediction with AlphaFold.* **Nature**, 596: 583–589.
+1. Bludau I, Willems S, Zeng WF, Strauss MT, Hansen FM, Tanzer MC, Karayel O, Schulman BA, Mann M (2022).
+   *The structural context of posttranslational modifications at a proteome-wide scale.* PLoS Biol 20(5): e3001636.
+   [doi:10.1371/journal.pbio.3001636](https://doi.org/10.1371/journal.pbio.3001636)
+2. Functional Genomics Center Zurich (FGCZ). *prophosqua R package for differential PTM analysis.*
+3. Jumper J, et al. (2021). *Highly accurate protein structure prediction with AlphaFold.* Nature 596: 583-589.
 
----
-
-## 📄 License
+## License
 
 Apache License 2.0. Developed at Functional Genomics Center Zurich (FGCZ).
