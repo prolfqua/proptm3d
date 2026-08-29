@@ -37,6 +37,8 @@ class ProteinReport:
         uniprot_acc: UniProt accession.
         ptm_count: Number of PTM records for the protein.
         sig_count: Number of records significant at the FDR threshold.
+        max_log2fc: Signed log2FC of the site with the largest absolute fold change,
+            or None when no site has a fold change.
         data_file: Path of the protein's JSON data file, relative to the output root.
         pml_file: Path of the PyMOL script, relative to the output root.
     """
@@ -45,6 +47,7 @@ class ProteinReport:
     uniprot_acc: str
     ptm_count: int
     sig_count: int
+    max_log2fc: float | None
     data_file: str
     pml_file: str
 

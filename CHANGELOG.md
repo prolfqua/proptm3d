@@ -37,6 +37,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- In the table view, the protein catalog is a full-height panel on the left (viewer
+  and site table stack to its right) and gains a "Max FC" column: the signed log2FC
+  of each protein's strongest site, recorded as `max_log2fc` in the catalog.
 - `ptm3d serve` refreshes the browser app files in the output directory to the
   installed ptm3d version before serving, and the server sends
   `Cache-Control: no-cache`, so an old output folder or a cached browser module can

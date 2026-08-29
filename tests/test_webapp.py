@@ -14,6 +14,7 @@ REPORT = webapp.ProteinReport(
     uniprot_acc="P28482",
     ptm_count=3,
     sig_count=2,
+    max_log2fc=-2.0,
     data_file="data/MAPK1_P28482.cbor",
     pml_file="MAPK1_P28482_pymol.pml",
 )
@@ -23,6 +24,7 @@ REPORT_DICT = {
     "uniprot_acc": "P28482",
     "ptm_count": 3,
     "sig_count": 2,
+    "max_log2fc": -2.0,
     "data_file": "data/MAPK1_P28482.cbor",
     "pml_file": "MAPK1_P28482_pymol.pml",
 }

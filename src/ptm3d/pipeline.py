@@ -68,11 +68,18 @@ def _process_protein(
     generate_pymol_script(pdb_path, prot_df, output_dir / pml_file, protein_name=gene_name)
 
     sig_count = prot_df.filter(pl.col("fdr") <= min_fdr).height if "fdr" in prot_df.columns else 0
+    fold_changes = (
+        prot_df["log2fc"].drop_nulls()
+        if "log2fc" in prot_df.columns
+        else pl.Series(dtype=pl.Float64)
+    )
+    max_log2fc = float(fold_changes[fold_changes.abs().arg_max()]) if len(fold_changes) else None
     return ProteinReport(
         gene_name=gene_name,
         uniprot_acc=acc,
         ptm_count=prot_df.height,
         sig_count=sig_count,
+        max_log2fc=max_log2fc,
         data_file=data_file,
         pml_file=pml_file,
     )

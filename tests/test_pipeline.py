@@ -36,6 +36,7 @@ def test_run_pipeline_generates_all_outputs(tmp_path, input_csv, pdb_file, monke
     assert entry["gene_name"] == "MAPK1"
     assert entry["uniprot_acc"] == "P28482"
     assert entry["sig_count"] == 2  # 2 of 3 sites have FDR <= 0.05.
+    assert entry["max_log2fc"] == -2.0  # T3 has the largest |log2FC| of 1.5, -2.0, 0.3.
     assert entry["data_file"] == "data/MAPK1_P28482.cbor"
 
 

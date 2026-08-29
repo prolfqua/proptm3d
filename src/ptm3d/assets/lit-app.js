@@ -24,8 +24,22 @@ import { centerSite, renderPtmSites } from './viewer3d.js'
 const PROTEIN_COLUMNS = [
   { title: 'Gene', field: 'gene_name', headerFilter: 'input' },
   { title: 'Accession', field: 'uniprot_acc', headerFilter: 'input' },
-  { title: 'Sites', field: 'ptm_count', hozAlign: 'right', sorter: 'number', width: 70 },
-  { title: 'Sig.', field: 'sig_count', hozAlign: 'right', sorter: 'number', width: 70 }
+  { title: 'Sites', field: 'ptm_count', hozAlign: 'right', sorter: 'number', width: 66 },
+  { title: 'Sig.', field: 'sig_count', hozAlign: 'right', sorter: 'number', width: 60 },
+  {
+    title: 'Max FC',
+    field: 'max_log2fc',
+    hozAlign: 'right',
+    sorter: 'number',
+    width: 86,
+    headerTooltip: 'log2FC of the site with the largest absolute fold change',
+    formatter: (cell) => {
+      const value = cell.getValue()
+      if (value === null || value === undefined) return '-'
+      const color = foldChangeColor(value)
+      return `<span style="background:${color};color:#000;padding:1px 6px;border-radius:4px;font-weight:600;">${value > 0 ? '+' : ''}${value.toFixed(2)}</span>`
+    }
+  }
 ]
 
 const SITE_COLUMNS = [
@@ -302,10 +316,12 @@ class PtmApp extends LitElement {
         <a href="index.html">Classic view</a>
         <span class="status">${this.status || this.meta}</span>
       </div>
-      <div class="viewer-host"><div id="viewers"></div></div>
-      <div class="table-host">
+      <div class="main-row">
         <div class="protein-pane"><div id="proteinTable"></div></div>
-        <div class="sites-pane"><div id="ptmTable"></div></div>
+        <div class="right-col">
+          <div class="viewer-host"><div id="viewers"></div></div>
+          <div class="sites-pane"><div id="ptmTable"></div></div>
+        </div>
       </div>
     `
   }
