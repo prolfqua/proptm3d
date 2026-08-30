@@ -40,8 +40,11 @@ check:  ## Run every merge-blocking quality gate
 serve:  ## Serve an output directory (DIR=output_3d PORT=8000)
 	$(VENV_BIN)/ptm3d serve $(DIR) --port $(PORT)
 
-example:  ## Run the pipeline on the bundled example dataset into DIR
-	$(VENV_BIN)/ptm3d --input examples/PTM_no_ERK_vs_ERK_top20.csv --output_dir $(DIR) --max_proteins 5
+example:  ## Run the pipeline on the bundled example dataset (with enrichment) into DIR
+	$(VENV_BIN)/ptm3d --input examples/PTM_no_ERK_vs_ERK_top20.csv --output_dir $(DIR) --max_proteins 5 \
+		--enrichment examples/enrichment/MEA_DPA_results.json \
+		examples/enrichment/KinaseLib_GSEA_DPA.json \
+		examples/enrichment/PTMSEA_DPA_results.json
 
 clean:  ## Remove generated build and quality artifacts
 	$(VENV_BIN)/python -c "import shutil; [shutil.rmtree(path, ignore_errors=True) for path in ('build', 'dist', '.pytest_cache', '.ruff_cache')]"

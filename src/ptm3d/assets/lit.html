@@ -59,12 +59,10 @@
 
         .main-row { display: flex; flex: 1; min-height: 0; }
         .left-col {
-            width: 520px;
             flex: none;
             min-height: 0;
             display: flex;
             flex-direction: column;
-            border-right: 1px solid var(--border-color);
             background-color: var(--card-bg);
         }
         .categories-pane {
@@ -75,6 +73,27 @@
         .categories-pane.hidden { display: none; }
         .protein-pane { flex: 1 1 30%; min-height: 0; border-bottom: 1px solid var(--border-color); }
         .sites-pane { flex: 0 0 36%; min-height: 0; }
+        .categories-pane, .protein-pane, .sites-pane { display: flex; flex-direction: column; }
+        .pane-title {
+            flex: none;
+            padding: 3px 8px;
+            font-size: 0.68rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--text-muted);
+            background-color: #16202f;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .pane-body { flex: 1; min-height: 0; }
+        .splitter {
+            flex: none;
+            width: 6px;
+            cursor: col-resize;
+            background-color: var(--border-color);
+            opacity: 0.6;
+        }
+        .splitter:hover, .splitter.dragging { background-color: var(--accent-blue); opacity: 1; }
         .viewer-host { flex: 1; min-width: 0; background-color: #0b0f19; min-height: 200px; }
         #viewers { display: flex; height: 100%; }
         .viewer-panel {

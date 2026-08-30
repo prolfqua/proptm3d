@@ -120,7 +120,8 @@ class PtmApp extends LitElement {
     contrasts: { type: Array },
     memberMode: { type: String },
     colorBy: { type: String },
-    hasCategories: { type: Boolean }
+    hasCategories: { type: Boolean },
+    leftWidth: { type: Number }
   }
 
   createRenderRoot () {
@@ -139,6 +140,7 @@ class PtmApp extends LitElement {
     this.memberMode = 'leading'
     this.colorBy = 'log2fc'
     this.hasCategories = false
+    this.leftWidth = 520
     this.categoriesPayload = null
     this.table = null
     this.proteinTable = null
@@ -535,6 +537,30 @@ class PtmApp extends LitElement {
     }
   }
 
+  /** Drag the splitter to resize the left column; tables and viewers re-measure on release. */
+  startResize (event) {
+    event.preventDefault()
+    const splitter = event.currentTarget
+    splitter.classList.add('dragging')
+    const startX = event.clientX
+    const startWidth = this.leftWidth
+    const move = (e) => {
+      this.leftWidth = Math.min(Math.max(startWidth + e.clientX - startX, 280), window.innerWidth - 360)
+    }
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      splitter.classList.remove('dragging')
+      ;[this.categoriesTable, this.proteinTable, this.table].forEach((t) => t && t.redraw(true))
+      this.viewerPanels.forEach(({ viewer }) => {
+        viewer.resize()
+        viewer.render()
+      })
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+
   showSite (p) {
     this.status = `${p.site} @ ${p.contrast} | log2FC ${p.log2fc > 0 ? '+' : ''}${p.log2fc.toFixed(2)} | FDR ${p.fdr < 0.001 ? p.fdr.toExponential(2) : p.fdr.toFixed(3)} | pLDDT ${p.plddt === null ? '-' : p.plddt.toFixed(1)}`
     this.highlighted = { contrast: p.contrast, resNum: p.res_num }
@@ -589,13 +615,21 @@ class PtmApp extends LitElement {
         <span class="status">${this.status || this.meta}</span>
       </div>
       <div class="main-row">
-        <div class="left-col">
+        <div class="left-col" style="width:${this.leftWidth}px">
           <div class="categories-pane ${this.hasCategories ? '' : 'hidden'}">
-            <div id="categoriesTable"></div>
+            <div class="pane-title">Categories</div>
+            <div class="pane-body"><div id="categoriesTable"></div></div>
           </div>
-          <div class="protein-pane"><div id="proteinTable"></div></div>
-          <div class="sites-pane"><div id="ptmTable"></div></div>
+          <div class="protein-pane">
+            <div class="pane-title">Proteins</div>
+            <div class="pane-body"><div id="proteinTable"></div></div>
+          </div>
+          <div class="sites-pane">
+            <div class="pane-title">PTM sites</div>
+            <div class="pane-body"><div id="ptmTable"></div></div>
+          </div>
         </div>
+        <div class="splitter" @pointerdown=${this.startResize}></div>
         <div class="viewer-host"><div id="viewers"></div></div>
       </div>
     `

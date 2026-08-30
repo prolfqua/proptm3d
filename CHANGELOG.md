@@ -20,6 +20,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   total member sites" so partial catalogs are visible, not silent.
 - `--sheet <name>` selects the sheet of an Excel workbook input (e.g. `DPA` in the
   combined `PTM_results.xlsx`); the first sheet remains the default.
+- The three left tables carry title bars (Categories, Proteins, PTM sites), and the
+  left column is resizable: drag the splitter between the tables and the 3D viewer.
+- `examples/enrichment/` ships small GSEAResult JSONs (subset of the o40094 DPA
+  enrichments matching the bundled top-20 CSV), and `make example` passes them, so the
+  category selector is testable locally without a pipeline run.
 - A global contrast dropdown in the toolbar scopes the category table, the site table,
   the 3D panels (one per contrast under "All contrasts"), and the protein table's
   Sig./Max FC columns, which now come from per-contrast stats in the catalog
