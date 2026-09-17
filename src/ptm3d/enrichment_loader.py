@@ -18,23 +18,29 @@ from pathlib import Path
 
 import polars as pl
 
+from ptm3d.mudata_reader import read_mudata_enrichment
 
-def load_gsea_results(paths: list[Path]) -> dict[str, dict[str, list[dict]]]:
+
+def load_gsea_results(
+    paths: list[Path], analysis: str | int = "DPA"
+) -> dict[str, dict[str, list[dict]]]:
     """Merge GSEAResult JSON files into ``contrast -> source -> terms``.
 
     Args:
-        paths: GSEAResult JSON files, one per enrichment source.
+        paths: GSEAResult JSON files or a completed MuData artifact.
+        analysis: Analysis selected when reading MuData.
 
     Returns:
         Terms grouped by contrast and category (source) name.
     """
     merged: dict[str, dict[str, list[dict]]] = {}
     for path in paths:
-        doc = json.loads(Path(path).read_text(encoding="utf-8"))
-        for contrast, block in doc["data"].items():
-            categories = merged.setdefault(contrast, {})
-            for name, category in block["categories"].items():
-                categories.setdefault(name, []).extend(category["terms"])
+        documents = _read_documents(Path(path), analysis)
+        for doc in documents:
+            for contrast, block in doc["data"].items():
+                categories = merged.setdefault(contrast, {})
+                for name, category in block["categories"].items():
+                    categories.setdefault(name, []).extend(category["terms"])
     return merged
 
 
@@ -132,3 +138,11 @@ def build_categories_payload(
             "terms": terms,
         }
     return {"sources": sorted(sources), "contrasts": contrasts}
+
+
+def _read_documents(path: Path, analysis: str | int) -> list[dict]:
+    readers = {
+        ".h5mu": lambda: read_mudata_enrichment(path, analysis),
+        ".json": lambda: [json.loads(path.read_text(encoding="utf-8"))],
+    }
+    return readers[path.suffix.lower()]()

@@ -212,3 +212,13 @@ Serve this folder over HTTP to use the app: `ptm3d serve output_3d [--port 8000]
 ## License
 
 Apache License 2.0. Developed at Functional Genomics Center Zurich (FGCZ).
+
+## MuData input
+
+Completed prophosqua `PTM_results.h5mu` files can supply both site statistics and embedded enrichment documents, before any Excel export:
+
+```bash
+ptm3d --input PTM_results.h5mu --sheet DPU --enrichment PTM_results.h5mu --output_dir output_3d
+```
+
+Select `DPA`, `DPU`, or `CF` with `--sheet`. DPU reads the protein-corrected effect and FDR. Incomplete stages fail at load time. Existing Excel/CSV/TSV and enrichment JSON inputs remain supported.

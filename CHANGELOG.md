@@ -4,6 +4,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+- Read PTM statistics and embedded enrichment directly from final prophosqua MuData, before delivery workbooks are exported.
+
 ### Added
 
 - GSEA category selector in the table view. `ptm3d --enrichment <json>...` takes the

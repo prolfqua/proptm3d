@@ -13,6 +13,7 @@ dependencies = [
     "cbor2>=5.6,<6",
     "cyclopts",
     "fastexcel",
+    "h5py>=3.12",
     "loguru",
     "numpy",
     "polars",
@@ -112,4 +113,5 @@ layers = [
     "ptm3d.web_visualizer",
     "ptm3d.protein_data | ptm3d.webapp",
     "ptm3d.data_loader | ptm3d.enrichment_loader | ptm3d.payload_io | ptm3d.pymol_exporter | ptm3d.structural_context | ptm3d.structure_fetcher",
+    "ptm3d.mudata_reader",
 ]

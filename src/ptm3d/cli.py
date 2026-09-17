@@ -32,12 +32,12 @@ def run(
     """Run the ptm3d pipeline.
 
     Args:
-        input_file: Path to PTM results Excel/CSV/TSV file.
+        input_file: Path to final PTM MuData or an Excel/CSV/TSV table.
         output_dir: Directory for the generated data, app, HTML, and PyMOL files.
         max_proteins: Cap on the number of top proteins; by default every protein
             with a significant site is processed.
         proteins: Specific UniProt accessions to process.
-        enrichment: GSEAResult JSON files from prophosqua (PTM-SEA, KinaseLib, MEA)
+        enrichment: Final MuData or GSEAResult JSON files from prophosqua (PTM-SEA, KinaseLib, MEA)
             for the app's category selector.
         sheet: Sheet name to read when the input is an Excel workbook (e.g. DPA in
             the combined PTM_results.xlsx); the first sheet by default.

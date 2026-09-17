@@ -187,7 +187,7 @@ def run_ptm3d_pipeline(
 
     write_catalog(out_dir, reports, writer)
     if enrichment_files:
-        enrichment = load_gsea_results(enrichment_files)
+        enrichment = load_gsea_results(enrichment_files, analysis=sheet)
         catalog_accs = {report.uniprot_acc for report in reports}
         categories = build_categories_payload(enrichment, df, catalog_accs)
         categories_path = writer.write(categories, out_dir / "data" / "categories")

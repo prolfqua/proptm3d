@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING
 
 import polars as pl
 
+from ptm3d.mudata_reader import read_ptm_mudata
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -68,7 +70,7 @@ def _read_excel(path: Path, sheet_name: int | str) -> pl.DataFrame:
 
 
 def load_ptm_data(file_path: Path | str, sheet_name: int | str = 0) -> pl.DataFrame:
-    """Load PTM differential analysis results from an Excel, CSV, or TSV file.
+    """Load PTM differential analysis results from final MuData, Excel, CSV, or TSV.
 
     Column aliases from common upstream tools are renamed to the internal schema
     (``uniprot_acc``, ``pos_in_protein``, ``mod_aa``, ``log2fc``, ``fdr``, ...).
@@ -91,6 +93,7 @@ def load_ptm_data(file_path: Path | str, sheet_name: int | str = 0) -> pl.DataFr
         raise FileNotFoundError(message)
 
     readers: dict[str, Callable[[Path], pl.DataFrame]] = {
+        ".h5mu": lambda p: read_ptm_mudata(p, sheet_name),
         ".xlsx": lambda p: _read_excel(p, sheet_name),
         ".xls": lambda p: _read_excel(p, sheet_name),
         ".csv": pl.read_csv,
