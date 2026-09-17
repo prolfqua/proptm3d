@@ -4,6 +4,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+- Preserve missing integer and logical annotations when reading MuData written by R, including DPU protein-only rows without a site position.
+
 - Read PTM statistics and embedded enrichment directly from final prophosqua MuData, before delivery workbooks are exported.
 
 ### Added

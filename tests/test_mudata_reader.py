@@ -100,3 +100,17 @@ def test_missing_annotations_remain_missing(mudata_file):
         ]
         column["missing"] = [True]
     assert read_ptm_mudata(mudata_file, "DPA")["gene_name"].to_list() == [None]
+
+
+def test_nullable_integer_positions_from_r(mudata_file):
+    with h5py.File(mudata_file, "r+") as handle:
+        column = handle[
+            "mod/enriched/uns/prophosqua/dpa_dpu/items/item_000002/columns/items/item_000004"
+        ]
+        del column["values"]
+        column["storage"][()] = "integer"
+        nullable = column.create_group("values")
+        nullable.attrs["encoding-type"] = "nullable-integer"
+        nullable["values"] = [0]
+        nullable["mask"] = [True]
+    assert read_ptm_mudata(mudata_file, "DPU")["posInProtein"].to_list() == [None]

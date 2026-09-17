@@ -48,11 +48,14 @@ def _record_item(group: h5py.Group, name: str) -> h5py.Group:
 def _column_values(group: h5py.Group) -> list:
     storage = group["storage"].asstr()[()]
     dataset = group["values"]
+    missing = np.atleast_1d(group["missing"][()]).astype(bool) if "missing" in group else False
+    if isinstance(dataset, h5py.Group):
+        missing = np.logical_or(missing, np.atleast_1d(dataset["mask"][()]))
+        dataset = dataset["values"]
     values = dataset.asstr()[()] if storage == "character" else dataset[()]
     result = np.atleast_1d(values).tolist()
-    if "missing" in group:
-        missing = np.atleast_1d(group["missing"][()]).astype(bool).tolist()
-        result = [None if absent else value for value, absent in zip(result, missing, strict=True)]
+    mask = np.broadcast_to(missing, (len(result),)).tolist()
+    result = [None if absent else value for value, absent in zip(result, mask, strict=True)]
     if storage == "character":
         return [None if value == "" else value for value in result]
     return result
