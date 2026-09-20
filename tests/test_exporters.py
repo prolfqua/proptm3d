@@ -4,7 +4,7 @@ import json
 
 import polars as pl
 
-from ptm3d import data_loader, protein_data, pymol_exporter, structural_context, web_visualizer
+from proptm3d import data_loader, protein_data, pymol_exporter, structural_context, web_visualizer
 
 
 def _standardized(ptm_frame, tmp_path):

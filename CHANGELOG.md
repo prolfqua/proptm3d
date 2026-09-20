@@ -4,6 +4,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Renamed
+
+- The project, package and console script are now `proptm3d` (`import proptm3d`,
+  `proptm3d --input ...`, `proptm3d serve`); the structure cache default moved from
+  `~/.cache/ptm3d_structures` to `~/.cache/proptm3d`. The ptm-pipeline configuration
+  key, rule names and output folder follow (`proptm3d:` in `ptm_config.yaml`,
+  `<analysis>/proptm3d/index.html`); `ptm-pipeline update` renames the key in existing
+  projects.
+
 - N-to-C lollipop pane under the 3D panels of the table view: one row per drawn
   contrast sharing the residue axis, a stick from zero to each site's log2FC, heads
   colored like the 3D spheres, dashed sticks and open heads for imputed estimates, an

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import polars as pl
 
-from ptm3d import data_loader
+from proptm3d import data_loader
 
 EXAMPLE_CSV = Path(__file__).parent.parent / "examples" / "PTM_no_ERK_vs_ERK_top20.csv"
 

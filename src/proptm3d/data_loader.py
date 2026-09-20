@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 import polars as pl
 
-from ptm3d.mudata_reader import read_ptm_mudata
+from proptm3d.mudata_reader import read_ptm_mudata
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -18,7 +18,7 @@ _UNIPROT_IN_HEADER = re.compile(r"(?:sp|tr)\|([A-Z0-9]{6,10}(?:-\d+)?)\|")
 _UNIPROT_DIRECT = re.compile(r"^[A-Z0-9]{6,10}(?:-\d+)?$")
 
 # Aliases produced by prophosqua, MaxQuant, FragPipe, Spectronaut, or custom tables,
-# mapped to the internal column schema shared by all ptm3d modules.
+# mapped to the internal column schema shared by all proptm3d modules.
 _COLUMN_ALIASES: dict[str, str] = {
     "protein_Id": "raw_protein_id",
     "protein_id": "raw_protein_id",

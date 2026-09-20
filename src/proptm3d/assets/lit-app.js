@@ -293,7 +293,7 @@ class PtmApp extends LitElement {
       this.categoriesPayload = categories
       this.hasCategories = categories !== null && Object.keys(categories.contrasts).length > 0
     } catch (error) {
-      this.meta = 'Could not load the data/ catalog - serve this folder over HTTP (ptm3d serve).'
+      this.meta = 'Could not load the data/ catalog - serve this folder over HTTP (proptm3d serve).'
       throw error
     }
 

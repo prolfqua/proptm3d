@@ -3,8 +3,8 @@
 import pytest
 import requests
 
-from ptm3d import structure_fetcher
-from ptm3d.structure_fetcher import StructureFetchError
+from proptm3d import structure_fetcher
+from proptm3d.structure_fetcher import StructureFetchError
 
 
 class FakeResponse:

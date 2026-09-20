@@ -7,19 +7,19 @@ from pathlib import Path
 import polars as pl
 from loguru import logger
 
-from ptm3d.data_loader import filter_ptm_data, load_ptm_data
-from ptm3d.enrichment_loader import build_categories_payload, load_gsea_results
-from ptm3d.payload_io import CborPayloadWriter, PayloadWriter
-from ptm3d.protein_data import build_protein_payload
-from ptm3d.pymol_exporter import generate_pymol_script
-from ptm3d.structural_context import (
+from proptm3d.data_loader import filter_ptm_data, load_ptm_data
+from proptm3d.enrichment_loader import build_categories_payload, load_gsea_results
+from proptm3d.payload_io import CborPayloadWriter, PayloadWriter
+from proptm3d.protein_data import build_protein_payload
+from proptm3d.pymol_exporter import generate_pymol_script
+from proptm3d.structural_context import (
     annotate_structural_regions,
     calculate_ppse,
     parse_pdb_residues,
 )
-from ptm3d.structure_fetcher import StructureFetchError, fetch_structure
-from ptm3d.web_visualizer import generate_interactive_html
-from ptm3d.webapp import ProteinReport, install_app, write_catalog
+from proptm3d.structure_fetcher import StructureFetchError, fetch_structure
+from proptm3d.web_visualizer import generate_interactive_html
+from proptm3d.webapp import ProteinReport, install_app, write_catalog
 
 
 def _select_targets(df: pl.DataFrame, max_proteins: int | None, min_fdr: float) -> list[str]:
@@ -109,7 +109,7 @@ def _process_protein(
     )
 
 
-def run_ptm3d_pipeline(
+def run_proptm3d_pipeline(
     input_file: Path | str,
     output_dir: Path | str,
     max_proteins: int | None = None,
@@ -123,7 +123,7 @@ def run_ptm3d_pipeline(
     """Run the end-to-end 3D PTM and log2FC visualizer pipeline.
 
     Writes per-protein JSON data files, cached PDB structures, PyMOL scripts, the run
-    catalog, and the static browser app that renders them (view with ``ptm3d serve``).
+    catalog, and the static browser app that renders them (view with ``proptm3d serve``).
     Optionally also writes a self-contained HTML dashboard per protein that can be
     opened directly from disk. Proteins whose structure cannot be fetched are logged
     and skipped; all other errors propagate.
@@ -193,5 +193,5 @@ def run_ptm3d_pipeline(
         categories_path = writer.write(categories, out_dir / "data" / "categories")
         logger.info("Wrote category index {}", categories_path)
     install_app(out_dir)
-    logger.info("Browser app written to {}; view it with: ptm3d serve {}", out_dir, out_dir)
+    logger.info("Browser app written to {}; view it with: proptm3d serve {}", out_dir, out_dir)
     return out_dir / "index.html"

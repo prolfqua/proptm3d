@@ -18,7 +18,7 @@ from pathlib import Path
 
 import polars as pl
 
-from ptm3d.mudata_reader import read_mudata_enrichment
+from proptm3d.mudata_reader import read_mudata_enrichment
 
 
 def load_gsea_results(

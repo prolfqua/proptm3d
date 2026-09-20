@@ -3,7 +3,7 @@
 import polars as pl
 import pytest
 
-from ptm3d import data_loader
+from proptm3d import data_loader
 
 
 @pytest.mark.parametrize(

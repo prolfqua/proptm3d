@@ -53,7 +53,7 @@ export async function loadCatalog (dataRoot = 'data') {
       return response.json()
     }
   }
-  throw new Error(`No catalog found under ${dataRoot}/ - run the ptm3d pipeline first.`)
+  throw new Error(`No catalog found under ${dataRoot}/ - run the proptm3d pipeline first.`)
 }
 
 /**

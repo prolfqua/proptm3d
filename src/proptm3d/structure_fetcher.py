@@ -8,7 +8,7 @@ from typing import Any
 import requests
 from loguru import logger
 
-DEFAULT_CACHE_DIR = Path.home() / ".cache" / "ptm3d_structures"
+DEFAULT_CACHE_DIR = Path.home() / ".cache" / "proptm3d"
 
 _API_TIMEOUT_SECONDS = 15
 _DOWNLOAD_TIMEOUT_SECONDS = 30

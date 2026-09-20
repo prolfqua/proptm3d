@@ -6,7 +6,7 @@ import h5py
 import numpy as np
 import pytest
 
-from ptm3d.mudata_reader import read_mudata_enrichment, read_ptm_mudata
+from proptm3d.mudata_reader import read_mudata_enrichment, read_ptm_mudata
 
 
 def _record(parent, name, values):

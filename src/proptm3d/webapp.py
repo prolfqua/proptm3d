@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 from loguru import logger
 
 if TYPE_CHECKING:
-    from ptm3d.payload_io import PayloadWriter
+    from proptm3d.payload_io import PayloadWriter
 
 _ASSET_NAMES = (
     "index.html",
@@ -90,7 +90,7 @@ def install_app(output_dir: Path | str) -> None:
         output_dir: Root of the generated output.
     """
     out_dir = Path(output_dir)
-    assets = resources.files("ptm3d") / "assets"
+    assets = resources.files("proptm3d") / "assets"
     for name in _ASSET_NAMES:
         target = out_dir / name
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -126,7 +126,7 @@ def serve(directory: Path | str, port: int = 8000) -> None:
     """Serve a generated output directory and block until interrupted.
 
     Args:
-        directory: Directory to serve (a ptm3d output folder).
+        directory: Directory to serve (a proptm3d output folder).
         port: TCP port to listen on.
     """
     with create_server(directory, port) as httpd:

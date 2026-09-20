@@ -4,7 +4,7 @@ import json
 
 import polars as pl
 
-from ptm3d.enrichment_loader import build_categories_payload, load_gsea_results
+from proptm3d.enrichment_loader import build_categories_payload, load_gsea_results
 
 
 def gsea_result_doc(source: str, terms: list[dict]) -> dict:

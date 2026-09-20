@@ -1,4 +1,4 @@
-"""Command-line interface for the ptm3d visualizer pipeline."""
+"""Command-line interface for the proptm3d visualizer pipeline."""
 
 from __future__ import annotations
 
@@ -7,10 +7,10 @@ from typing import Annotated, Literal
 
 from cyclopts import App, Parameter
 
-from ptm3d import pipeline, webapp
-from ptm3d.payload_io import payload_writer_for
+from proptm3d import pipeline, webapp
+from proptm3d.payload_io import payload_writer_for
 
-app = App(name="ptm3d", help="3D PTM & log2-Fold-Change Visualizer")
+app = App(name="proptm3d", help="3D PTM & log2-Fold-Change Visualizer")
 
 
 @app.default
@@ -30,7 +30,7 @@ def run(
     html: bool = True,
     data_format: Annotated[Literal["cbor", "json"], Parameter(name="--format")] = "cbor",
 ) -> None:
-    """Run the ptm3d pipeline.
+    """Run the proptm3d pipeline.
 
     Args:
         input_file: Path to final PTM MuData or an Excel/CSV/TSV table.
@@ -47,7 +47,7 @@ def run(
         html: Also write a standalone HTML dashboard per protein (--no-html to skip).
         data_format: On-disk format for the app's data files and catalog.
     """
-    pipeline.run_ptm3d_pipeline(
+    pipeline.run_proptm3d_pipeline(
         input_file,
         output_dir,
         max_proteins=max_proteins,
@@ -64,7 +64,7 @@ def run(
 def serve(directory: Path = Path("output_3d"), *, port: int = 8000) -> None:
     """Serve a generated output directory so the visualizer can run in the browser.
 
-    The browser app assets in the directory are refreshed to the installed ptm3d
+    The browser app assets in the directory are refreshed to the installed proptm3d
     version first, so an old output folder always gets the current app.
 
     Args:
@@ -76,7 +76,7 @@ def serve(directory: Path = Path("output_3d"), *, port: int = 8000) -> None:
 
 
 def main() -> None:
-    """Entry point for the ptm3d console script."""
+    """Entry point for the proptm3d console script."""
     app()
 
 

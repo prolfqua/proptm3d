@@ -1,8 +1,8 @@
-# ptm3d
+# proptm3d
 
 **3D Protein Post-Translational Modification & log2FC Visualizer**
 
-`ptm3d` is a computational toolkit that bridges quantitative mass spectrometry proteomics (e.g. phosphoproteomics)
+`proptm3d` is a computational toolkit that bridges quantitative mass spectrometry proteomics (e.g. phosphoproteomics)
 and 3D protein structures. It ingests differential PTM quantification results (from pipelines such as FGCZ
 `prophosqua`) and maps identified modification sites, their log2-fold-changes (log2FC), and significance (FDR)
 directly onto 3D atomic structures from AlphaFold DB.
@@ -30,7 +30,7 @@ The structural context metrics and visual principles are inspired by Bludau et a
 - **PyMOL export**: generates standalone `.pml` scripts for rendering publication-quality ray-traced figures in
   PyMOL.
 - **Data/visualization separation**: the pipeline writes JSON + PDB data files; a static single-page JS app
-  renders them in the browser, with a protein selector fed by `data/catalog.json` (`ptm3d serve`).
+  renders them in the browser, with a protein selector fed by `data/catalog.json` (`proptm3d serve`).
 
 ## Quick Start
 
@@ -50,15 +50,15 @@ Process every protein with a significant site (the default), then serve the resu
 the browser:
 
 ```bash
-ptm3d --input PTM_results.xlsx --output_dir output_3d
-ptm3d serve output_3d          # http://127.0.0.1:8000/
+proptm3d --input PTM_results.xlsx --output_dir output_3d
+proptm3d serve output_3d          # http://127.0.0.1:8000/
 ```
 
 Cap the run to the top N proteins (quick looks, tests), or process specific UniProt accessions:
 
 ```bash
-ptm3d --input PTM_results.xlsx --output_dir output_3d --max_proteins 10
-ptm3d --input PTM_results.xlsx --output_dir output_3d --proteins P28482 P12270 O60343
+proptm3d --input PTM_results.xlsx --output_dir output_3d --max_proteins 10
+proptm3d --input PTM_results.xlsx --output_dir output_3d --proteins P28482 P12270 O60343
 ```
 
 Add the enrichment results the PTM pipeline writes (string_gsea GSEAResult JSON from PTM-SEA,
@@ -66,7 +66,7 @@ KinaseLib GSEA, and MEA) to get the category selector in the table view — pick
 signature, see the proteins and sites that are members, marked on the structure:
 
 ```bash
-ptm3d --input PTM_results.xlsx --output_dir output_3d \
+proptm3d --input PTM_results.xlsx --output_dir output_3d \
   --enrichment PTMSEA_DPA_results.json KinaseLib_GSEA_DPA.json MEA_DPA_results.json
 ```
 
@@ -77,7 +77,7 @@ There are two visualization paths:
 - **Data + browser apps** (primary): the pipeline writes per-protein data files and a catalog under
   `data/` — CBOR by default, plain JSON with `--format json` — plus the cached AlphaFold PDB models
   under `structures/`. Two static JS apps are copied into the output directory and fetch those files
-  at view time (which is why the folder must be served over HTTP: `ptm3d serve`, or any static file
+  at view time (which is why the folder must be served over HTTP: `proptm3d serve`, or any static file
   server):
   - `index.html` — the classic card-panel dashboard;
   - `lit.html` — a table-centric view (Lit + Tabulator, the rawDIAGQC stack): three stacked tables
@@ -96,13 +96,13 @@ A small real dataset (mouse phospho, 20 proteins from a prophosqua `no_ERK_vs_ER
 `examples/` for a quick demo:
 
 ```bash
-ptm3d --input examples/PTM_no_ERK_vs_ERK_top20.csv --output_dir output_3d --max_proteins 5
-ptm3d serve output_3d
+proptm3d --input examples/PTM_no_ERK_vs_ERK_top20.csv --output_dir output_3d --max_proteins 5
+proptm3d serve output_3d
 ```
 
 How protein selection and contrasts work:
 
-- **Automatic selection**: by default, `ptm3d` filters the dataset for statistically significant
+- **Automatic selection**: by default, `proptm3d` filters the dataset for statistically significant
   modifications (FDR <= 0.05) and processes every protein with at least one significant site,
   ranked by significant-site count; `--max_proteins N` caps that to the top N.
 - **Multi-contrast inclusion**: once a protein is selected, all condition contrasts for that protein are included
@@ -110,17 +110,18 @@ How protein selection and contrasts work:
 
 ## Python API Usage
 
-`ptm3d` can also be used directly from Python scripts or notebooks:
+`proptm3d` can also be used directly from Python scripts or notebooks:
 
 Import from the concrete modules (the package `__init__` is intentionally empty). All tables are
 [polars](https://pola.rs) DataFrames:
 
 ```python
-from ptm3d.data_loader import filter_ptm_data, load_ptm_data
-from ptm3d.protein_data import write_protein_data
-from ptm3d.pymol_exporter import generate_pymol_script
-from ptm3d.structural_context import annotate_structural_regions, calculate_ppse, parse_pdb_residues
-from ptm3d.structure_fetcher import fetch_structure
+from proptm3d.data_loader import filter_ptm_data, load_ptm_data
+from proptm3d.payload_io import JsonPayloadWriter
+from proptm3d.protein_data import build_protein_payload
+from proptm3d.pymol_exporter import generate_pymol_script
+from proptm3d.structural_context import calculate_ppse, parse_pdb_residues
+from proptm3d.structure_fetcher import fetch_structure
 
 # 1. Load and filter PTM dataset
 df = load_ptm_data("PTM_results.xlsx")
@@ -129,20 +130,19 @@ mapk1_df = filter_ptm_data(df, protein_acc="P28482")
 # 2. Fetch AlphaFold 3D structure
 pdb_path = fetch_structure("P28482", cache_dir="output_3d/structures")
 
-# 3. Compute structural metrics (pLDDT, exposure, IDRs)
+# 3. Compute structural metrics (pLDDT, exposure)
 res_df = parse_pdb_residues(pdb_path)
 res_df = calculate_ppse(res_df)
-res_df = annotate_structural_regions(res_df)
 
-# 4. Write the protein's data file for the browser app
-write_protein_data(
+# 4. Build and write the protein's data file for the browser app
+payload = build_protein_payload(
     mapk1_df,
     res_df,
-    "output_3d/data/MAPK1_P28482.json",
     protein_acc="P28482",
     gene_name="MAPK1",
     pdb_file="structures/P28482.pdb",
 )
+JsonPayloadWriter().write(payload, "output_3d/data/MAPK1_P28482")
 
 # 5. Generate PyMOL script for publication figures
 generate_pymol_script(
@@ -199,7 +199,7 @@ output_3d/
     └── P12270.pdb
 ```
 
-Serve this folder over HTTP to use the app: `ptm3d serve output_3d [--port 8000]`.
+Serve this folder over HTTP to use the app: `proptm3d serve output_3d [--port 8000]`.
 
 ## References
 
@@ -218,7 +218,7 @@ Apache License 2.0. Developed at Functional Genomics Center Zurich (FGCZ).
 Completed prophosqua `PTM_results.h5mu` files can supply both site statistics and embedded enrichment documents, before any Excel export:
 
 ```bash
-ptm3d --input PTM_results.h5mu --sheet DPU --enrichment PTM_results.h5mu --output_dir output_3d
+proptm3d --input PTM_results.h5mu --sheet DPU --enrichment PTM_results.h5mu --output_dir output_3d
 ```
 
 Select `DPA`, `DPU`, or `CF` with `--sheet`. DPU reads the protein-corrected effect and FDR. Incomplete stages fail at load time. Existing Excel/CSV/TSV and enrichment JSON inputs remain supported.

@@ -1,5 +1,5 @@
 [project]
-name = "ptm3d"
+name = "proptm3d"
 version = "0.1.0"
 description = "Map differential PTM results onto AlphaFold 3D structures with interactive HTML and PyMOL export."
 readme = "README.md"
@@ -21,7 +21,7 @@ dependencies = [
 ]
 
 [project.scripts]
-ptm3d = "ptm3d.cli:main"
+proptm3d = "proptm3d.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.11,<0.12"]
@@ -80,7 +80,7 @@ convention = "google"
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "D", "ANN", "ARG", "EM"]
 # The embedded HTML/JS template has long lines.
-"src/ptm3d/web_visualizer.py" = ["E501"]
+"src/proptm3d/web_visualizer.py" = ["E501"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -88,30 +88,30 @@ quote-style = "double"
 [tool.coverage.run]
 branch = true
 relative_files = true
-source = ["ptm3d"]
+source = ["proptm3d"]
 
 [tool.coverage.report]
 fail_under = 90
 show_missing = true
 
 [tool.deptry]
-known_first_party = ["ptm3d"]
+known_first_party = ["proptm3d"]
 
 [tool.deptry.per_rule_ignores]
 # fastexcel is polars' Excel engine, loaded at runtime rather than imported.
 DEP002 = ["fastexcel"]
 
 [tool.importlinter]
-root_package = "ptm3d"
+root_package = "proptm3d"
 
 [[tool.importlinter.contracts]]
 name = "cli composes the pipeline; the pipeline composes independent leaf modules"
 type = "layers"
 layers = [
-    "ptm3d.cli",
-    "ptm3d.pipeline",
-    "ptm3d.web_visualizer",
-    "ptm3d.protein_data | ptm3d.webapp",
-    "ptm3d.data_loader | ptm3d.enrichment_loader | ptm3d.payload_io | ptm3d.pymol_exporter | ptm3d.structural_context | ptm3d.structure_fetcher",
-    "ptm3d.mudata_reader",
+    "proptm3d.cli",
+    "proptm3d.pipeline",
+    "proptm3d.web_visualizer",
+    "proptm3d.protein_data | proptm3d.webapp",
+    "proptm3d.data_loader | proptm3d.enrichment_loader | proptm3d.payload_io | proptm3d.pymol_exporter | proptm3d.structural_context | proptm3d.structure_fetcher",
+    "proptm3d.mudata_reader",
 ]

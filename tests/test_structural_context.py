@@ -3,7 +3,7 @@
 import polars as pl
 import pytest
 
-from ptm3d import structural_context
+from proptm3d import structural_context
 
 
 def test_parse_pdb_residues(pdb_file):

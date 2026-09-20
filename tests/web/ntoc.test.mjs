@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { hoverText, ntocFigure, sharedRange } from '../../src/ptm3d/assets/panels/ntoc.js'
+import { hoverText, ntocFigure, sharedRange } from '../../src/proptm3d/assets/panels/ntoc.js'
 
 const site = (overrides) => ({
   res_num: 10,

@@ -5,7 +5,7 @@ import json
 import cbor2
 import pytest
 
-from ptm3d import payload_io
+from proptm3d import payload_io
 
 PAYLOAD = {"gene_name": "MAPK1", "ptms": [{"res_num": 2, "log2fc": 1.5, "plddt": None}]}
 

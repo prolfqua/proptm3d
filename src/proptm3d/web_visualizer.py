@@ -1,6 +1,6 @@
 """Standalone HTML export: a self-contained 3Dmol.js dashboard with embedded data.
 
-This is the file-based alternative to the served browser app (:mod:`ptm3d.webapp`):
+This is the file-based alternative to the served browser app (:mod:`proptm3d.webapp`):
 each generated page embeds the PDB text and PTM data and can be opened directly
 from disk, with the 3Dmol.js script from CDN as its only external resource.
 """
@@ -12,7 +12,7 @@ from pathlib import Path
 
 import polars as pl
 
-from ptm3d.protein_data import build_ptm_records
+from proptm3d.protein_data import build_ptm_records
 
 _LOG2FC_COLOR_SCALE = 2.5
 _LOG2FC_COLOR_DAMPING = 0.8
@@ -45,7 +45,7 @@ def generate_interactive_html(
     Args:
         pdb_path: Path to the structure file to embed.
         ptm_df: Standardized PTM table for this protein.
-        res_df: Residue table from :mod:`ptm3d.structural_context`.
+        res_df: Residue table from :mod:`proptm3d.structural_context`.
         output_html_path: Destination for the HTML file.
         protein_acc: UniProt accession shown in the header.
         gene_name: Gene symbol shown in the header.

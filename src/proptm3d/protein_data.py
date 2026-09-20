@@ -23,7 +23,7 @@ def build_ptm_records(
 
     Args:
         ptm_df: Standardized PTM table for one protein.
-        res_df: Residue table from :mod:`ptm3d.structural_context`.
+        res_df: Residue table from :mod:`proptm3d.structural_context`.
         protein_acc: UniProt accession used for fallback site names.
 
     Returns:
@@ -80,11 +80,11 @@ def build_protein_payload(
     """Build one protein's data payload for the browser apps.
 
     Serialization is a separate concern: the caller hands the payload to a
-    :class:`ptm3d.payload_io.PayloadWriter`.
+    :class:`proptm3d.payload_io.PayloadWriter`.
 
     Args:
         ptm_df: Standardized PTM table for this protein.
-        res_df: Residue table from :mod:`ptm3d.structural_context`.
+        res_df: Residue table from :mod:`proptm3d.structural_context`.
         protein_acc: UniProt accession.
         gene_name: Gene symbol.
         pdb_file: Path of the structure file, relative to the served output root.

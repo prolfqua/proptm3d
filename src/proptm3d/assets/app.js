@@ -1,5 +1,5 @@
-// ptm3d browser app: loads the run catalog plus per-protein data + PDB files
-// written by the ptm3d pipeline (JSON or CBOR) and renders them with 3Dmol.js.
+// proptm3d browser app: loads the run catalog plus per-protein data + PDB files
+// written by the proptm3d pipeline (JSON or CBOR) and renders them with 3Dmol.js.
 
 import { foldChangeColor } from './color.js';
 import { loadCatalog, loadPayload, loadText } from './payload.js';
@@ -21,7 +21,7 @@ async function init() {
         state.catalog = await loadCatalog();
     } catch (error) {
         document.getElementById('proteinMeta').textContent =
-            'Could not load the data/ catalog - serve this folder over HTTP (ptm3d serve).';
+            'Could not load the data/ catalog - serve this folder over HTTP (proptm3d serve).';
         throw error;
     }
 

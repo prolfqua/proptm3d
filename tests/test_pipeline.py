@@ -5,9 +5,9 @@ import json
 import cbor2
 import pytest
 
-from ptm3d import cli, pipeline
-from ptm3d.payload_io import JsonPayloadWriter
-from ptm3d.structure_fetcher import StructureFetchError
+from proptm3d import cli, pipeline
+from proptm3d.payload_io import JsonPayloadWriter
+from proptm3d.structure_fetcher import StructureFetchError
 
 
 @pytest.fixture
@@ -21,7 +21,7 @@ def test_run_pipeline_generates_all_outputs(tmp_path, input_csv, pdb_file, monke
     monkeypatch.setattr(pipeline, "fetch_structure", lambda acc, cache_dir: pdb_file)
     out_dir = tmp_path / "output"
 
-    index_path = pipeline.run_ptm3d_pipeline(input_csv, out_dir)
+    index_path = pipeline.run_proptm3d_pipeline(input_csv, out_dir)
 
     assert index_path == out_dir / "index.html"
     assert index_path.exists()
@@ -46,7 +46,7 @@ def test_run_pipeline_with_json_writer(tmp_path, input_csv, pdb_file, monkeypatc
     monkeypatch.setattr(pipeline, "fetch_structure", lambda acc, cache_dir: pdb_file)
     out_dir = tmp_path / "output"
 
-    pipeline.run_ptm3d_pipeline(input_csv, out_dir, writer=JsonPayloadWriter())
+    pipeline.run_proptm3d_pipeline(input_csv, out_dir, writer=JsonPayloadWriter())
 
     data_path = out_dir / "data" / "MAPK1_P28482.json"
     assert data_path.exists()
@@ -60,7 +60,7 @@ def test_run_pipeline_without_html_reports(tmp_path, input_csv, pdb_file, monkey
     monkeypatch.setattr(pipeline, "fetch_structure", lambda acc, cache_dir: pdb_file)
     out_dir = tmp_path / "output"
 
-    pipeline.run_ptm3d_pipeline(input_csv, out_dir, html_reports=False)
+    pipeline.run_proptm3d_pipeline(input_csv, out_dir, html_reports=False)
 
     assert (out_dir / "data" / "MAPK1_P28482.cbor").exists()
     assert not (out_dir / "MAPK1_P28482_3d.html").exists()
@@ -73,7 +73,7 @@ def test_run_pipeline_skips_unfetchable_protein(tmp_path, input_csv, monkeypatch
     monkeypatch.setattr(pipeline, "fetch_structure", failing_fetch)
     out_dir = tmp_path / "output"
 
-    index_path = pipeline.run_ptm3d_pipeline(input_csv, out_dir)
+    index_path = pipeline.run_proptm3d_pipeline(input_csv, out_dir)
 
     assert index_path.exists()
     catalog = cbor2.loads((out_dir / "data" / "catalog.cbor").read_bytes())
@@ -85,7 +85,7 @@ def test_run_pipeline_with_explicit_targets(tmp_path, input_csv, pdb_file, monke
     monkeypatch.setattr(pipeline, "fetch_structure", lambda acc, cache_dir: pdb_file)
     out_dir = tmp_path / "output"
 
-    pipeline.run_ptm3d_pipeline(input_csv, out_dir, target_proteins=["P28482", "Q00000"])
+    pipeline.run_proptm3d_pipeline(input_csv, out_dir, target_proteins=["P28482", "Q00000"])
 
     assert (out_dir / "data" / "MAPK1_P28482.cbor").exists()
     # Q00000 has no PTM records and is skipped before fetching.
@@ -133,7 +133,7 @@ def test_run_pipeline_with_enrichment(tmp_path, input_csv, pdb_file, monkeypatch
     monkeypatch.setattr(pipeline, "fetch_structure", lambda acc, cache_dir: pdb_file)
     out_dir = tmp_path / "output"
 
-    pipeline.run_ptm3d_pipeline(
+    pipeline.run_proptm3d_pipeline(
         input_csv, out_dir, enrichment_files=[enrichment_json_file(tmp_path)]
     )
 

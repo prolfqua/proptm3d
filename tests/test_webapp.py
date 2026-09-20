@@ -6,8 +6,8 @@ import urllib.request
 
 import cbor2
 
-from ptm3d import webapp
-from ptm3d.payload_io import CborPayloadWriter, JsonPayloadWriter
+from proptm3d import webapp
+from proptm3d.payload_io import CborPayloadWriter, JsonPayloadWriter
 
 CONTRAST_STATS = {
     "A_vs_B": {"sig_count": 1, "max_log2fc": -2.0},

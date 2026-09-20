@@ -39,7 +39,7 @@ def _analysis_name(analysis: str | int) -> str:
 def _validate_stage(handle: h5py.File) -> None:
     namespace = handle["uns/prophosqua"]
     if namespace["stage"].asstr()[()] != "PTM_results":
-        message = "ptm3d requires the completed PTM_results MuData stage"
+        message = "proptm3d requires the completed PTM_results MuData stage"
         raise ValueError(message)
     if namespace["schema_version"].asstr()[()] != "2.0.0":
         message = "Unsupported prophosqua MuData schema"

@@ -42,10 +42,10 @@ check:  ## Run every merge-blocking quality gate
 	$(MAKE) format-check lint deps test test-web build
 
 serve:  ## Serve an output directory (DIR=output_3d PORT=8000)
-	$(VENV_BIN)/ptm3d serve $(DIR) --port $(PORT)
+	$(VENV_BIN)/proptm3d serve $(DIR) --port $(PORT)
 
 example:  ## Run the pipeline on the bundled example dataset (with enrichment) into DIR
-	$(VENV_BIN)/ptm3d --input examples/PTM_no_ERK_vs_ERK_top20.csv --output_dir $(DIR) --max_proteins 5 \
+	$(VENV_BIN)/proptm3d --input examples/PTM_no_ERK_vs_ERK_top20.csv --output_dir $(DIR) --max_proteins 5 \
 		--enrichment examples/enrichment/MEA_DPA_results.json \
 		examples/enrichment/KinaseLib_GSEA_DPA.json \
 		examples/enrichment/PTMSEA_DPA_results.json

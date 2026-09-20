@@ -4,15 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`ptm3d` maps differential PTM quantification results (e.g. from `prophosqua`) onto 3D protein structures fetched
+`proptm3d` maps differential PTM quantification results (e.g. from `prophosqua`) onto 3D protein structures fetched
 from AlphaFold DB. The pipeline writes **data files** (per-protein JSON under `data/`, `data/catalog.json`, cached
 PDB models under `structures/`) plus PyMOL `.pml` scripts; the primary visualization is a static single-page JS app
 (`index.html` + `app.js`, shipped as package assets and copied into the output directory) that fetches those files
-in the browser. `ptm3d serve <dir>` serves an output directory locally. A second, kept-for-now path writes
+in the browser. `proptm3d serve <dir>` serves an output directory locally. A second, kept-for-now path writes
 self-contained `<gene>_<acc>_3d.html` dashboards with embedded data (default on; `--no-html` to skip).
 
 It is a uv-managed Python package (src layout, `uv_build` backend) modeled on the FGCZ Python project reference
-(`fgcz_python_project_reference`), providing the `ptm3d` console script.
+(`fgcz_python_project_reference`), providing the `proptm3d` console script.
 
 ## Commands
 
@@ -30,20 +30,20 @@ make check        # every merge-blocking gate (lock check + all of the above)
 make clean        # remove build/cache artifacts
 
 uv run pytest tests/test_data_loader.py   # single test file
-uv run ptm3d --input <results.xlsx> --output_dir output_3d --max_proteins 10
-uv run ptm3d serve output_3d --port 8000  # serve the app at http://127.0.0.1:8000/
+uv run proptm3d --input <results.xlsx> --output_dir output_3d --max_proteins 10
+uv run proptm3d serve output_3d --port 8000  # serve the app at http://127.0.0.1:8000/
 ```
 
 ## Architecture
 
-Code lives in `src/ptm3d/`. `__init__.py` is intentionally empty — import from concrete modules.
+Code lives in `src/proptm3d/`. `__init__.py` is intentionally empty — import from concrete modules.
 
 Dependency direction is `cli -> pipeline -> leaf modules`, enforced by the Import Linter layers contract in
 `pyproject.toml` (`uv run lint-imports`). The leaf modules are independent of each other.
 
 | Module | Responsibility |
 |---|---|
-| `cli.py` | cyclopts boundary (`ptm3d` console script): the default pipeline command and the `serve` subcommand |
+| `cli.py` | cyclopts boundary (`proptm3d` console script): the default pipeline command and the `serve` subcommand |
 | `pipeline.py` | End-to-end orchestration: select proteins, run the leaf steps, collect `ProteinReport`s, write catalog + app |
 | `data_loader.py` | Load Excel/CSV/TSV PTM results, map column aliases (`protein_Id`, `diff.site`, `FDR.site`, ...) to the internal schema (`uniprot_acc`, `pos_in_protein`, `log2fc`, `fdr`, ...) |
 | `structure_fetcher.py` | AlphaFold DB API access and PDB caching; raises `StructureFetchError` on any retrieval failure |
@@ -69,7 +69,7 @@ monkeypatched) and build synthetic PDB content via the `conftest.py` fixtures.
   `fastexcel` (polars' `read_excel` engine); tests write xlsx via `xlsxwriter` (dev dependency).
 - CLI is cyclopts (`cli.app`); it exits via `SystemExit` with the command's return code, which the CLI tests expect.
 - Coverage gate: 90% (`fail_under` in pyproject); lint gates: `ruff check`, `ruff format --check`, `lint-imports`.
-- Keep `src/ptm3d/__init__.py` empty; import from concrete modules.
+- Keep `src/proptm3d/__init__.py` empty; import from concrete modules.
 - The pipeline skips a protein only on `StructureFetchError`; all other errors must propagate. Do not add broad
   exception handlers.
 - Protein selection default: **all proteins with at least one significant site**; `--max_proteins` is the explicit
@@ -80,7 +80,7 @@ monkeypatched) and build synthetic PDB content via the `conftest.py` fixtures.
 - Data and visualization stay separate: Python builds payloads and a `PayloadWriter` (CBOR default, JSON via
   `--format json`) serializes them; all rendering logic lives in `assets/`. The apps' external requests are the
   3Dmol.js script from `https://3dmol.org` and the pinned jsdelivr modules re-exported by `vendor/`; the data files
-  are fetched relative to the served output root, so the output directory must be viewed over HTTP (`ptm3d serve`),
+  are fetched relative to the served output root, so the output directory must be viewed over HTTP (`proptm3d serve`),
   not via `file://`. The file extension (`.json`/`.cbor`) is the decode contract in `payload.js`.
 - Do not branch on a format name outside `payload_io.payload_writer_for`; pass the writer down instead.
 - Tests must not touch the network; `structure_fetcher` downloads are cached, so real runs reuse the cache
