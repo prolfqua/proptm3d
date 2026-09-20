@@ -26,6 +26,7 @@ def run(
         list[Path] | None, Parameter(name=("--enrichment", "-e"), consume_multiple=True)
     ] = None,
     sheet: Annotated[str | None, Parameter(name="--sheet")] = None,
+    fdr: Annotated[float, Parameter(name="--fdr")] = 0.05,
     html: bool = True,
     data_format: Annotated[Literal["cbor", "json"], Parameter(name="--format")] = "cbor",
 ) -> None:
@@ -41,6 +42,8 @@ def run(
             for the app's category selector.
         sheet: Sheet name to read when the input is an Excel workbook (e.g. DPA in
             the combined PTM_results.xlsx); the first sheet by default.
+        fdr: FDR threshold that makes a site significant, for protein selection and
+            the significant-site counts; match the threshold of the surrounding reports.
         html: Also write a standalone HTML dashboard per protein (--no-html to skip).
         data_format: On-disk format for the app's data files and catalog.
     """
@@ -48,6 +51,7 @@ def run(
         input_file,
         output_dir,
         max_proteins=max_proteins,
+        min_fdr=fdr,
         target_proteins=proteins,
         html_reports=html,
         writer=payload_writer_for(data_format),

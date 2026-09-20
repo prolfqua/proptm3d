@@ -56,6 +56,9 @@ def mudata_file(tmp_path):
                     "FDR.site": [0.01],
                     "diff_diff": [2.0],
                     "FDR_I": [0.03],
+                    "protein_length": [360.0],
+                    "diff.protein": [0.4],
+                    "estimate_type.site": ["lod_imputed"],
                 },
             )
         docs = handle.create_group("mod/cf/uns/prophosqua/enrichment_documents")
@@ -72,6 +75,9 @@ def test_effect_columns_belong_to_requested_analysis(mudata_file, analysis, effe
     assert table["diff.site"].to_list() == [effect]
     assert table["FDR.site"].to_list() == [fdr]
     assert table["gene_name"].to_list() == ["GENE"]
+    assert table["protein_length"].to_list() == [360.0]
+    assert table["diff.protein"].to_list() == [0.4]
+    assert table["estimate_type.site"].to_list() == ["lod_imputed"]
 
 
 def test_enrichment_is_selected_by_analysis(mudata_file):

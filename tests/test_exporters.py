@@ -2,6 +2,8 @@
 
 import json
 
+import polars as pl
+
 from ptm3d import data_loader, protein_data, pymol_exporter, structural_context, web_visualizer
 
 
@@ -53,6 +55,29 @@ def test_build_protein_payload(tmp_path, pdb_file, ptm_frame):
     site = payload["ptms"][0]
     assert site["x"] == 10.0
     assert site["plddt"] == 88.0
+    assert site["imputed"] is False
+    assert payload["sequence"] == "MSTY"
+    assert payload["protein_length"] == 4
+    assert payload["protein_log2fc"] == {}
+
+
+def test_build_protein_payload_carries_protein_level_context(tmp_path, pdb_file, ptm_frame):
+    frame = ptm_frame.with_columns(
+        pl.Series("diff.protein", [0.4, 0.4, -0.1]),
+        pl.Series("protein_length", [360, 360, 360]),
+        pl.Series("estimate_type.site", ["observed", "lod_imputed", "observed"]),
+        pl.Series("estimate_type.protein", ["observed", "observed", "lod_imputed"]),
+    )
+    df = _standardized(frame, tmp_path)
+    res_df = structural_context.parse_pdb_residues(pdb_file)
+
+    payload = protein_data.build_protein_payload(
+        df, res_df, protein_acc="P28482", gene_name="MAPK1", pdb_file="structures/P28482.pdb"
+    )
+
+    assert payload["protein_length"] == 360
+    assert payload["protein_log2fc"] == {"A_vs_B": 0.4, "C_vs_B": -0.1}
+    assert [p["imputed"] for p in payload["ptms"]] == [False, True, True]
 
 
 def test_generate_interactive_html(tmp_path, pdb_file, ptm_frame):

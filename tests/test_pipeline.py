@@ -191,3 +191,26 @@ def test_cli_requires_input(capsys):
     assert excinfo.value.code != 0
     output = capsys.readouterr()
     assert "--input" in output.out + output.err
+
+
+def test_cli_fdr_threshold_drives_significance(tmp_path, input_csv, pdb_file, monkeypatch):
+    monkeypatch.setattr(pipeline, "fetch_structure", lambda acc, cache_dir: pdb_file)
+    out_dir = tmp_path / "fdr_output"
+
+    with pytest.raises(SystemExit) as excinfo:
+        cli.app(
+            [
+                "--input",
+                str(input_csv),
+                "--output_dir",
+                str(out_dir),
+                "--fdr",
+                "0.25",
+                "--format",
+                "json",
+            ]
+        )
+    assert excinfo.value.code == 0
+    catalog = json.loads((out_dir / "data" / "catalog.json").read_text(encoding="utf-8"))
+    (entry,) = catalog["proteins"]
+    assert entry["sig_count"] == 3  # All three sites pass FDR <= 0.25.

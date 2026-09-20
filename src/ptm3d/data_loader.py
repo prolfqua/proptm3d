@@ -34,9 +34,12 @@ _COLUMN_ALIASES: dict[str, str] = {
     "pvalue": "p_value",
     "SequenceWindow": "sequence_window",
     "site": "site_name",
+    "diff.protein": "protein_log2fc",
 }
 
-_NUMERIC_COLUMNS = ("pos_in_protein", "log2fc", "fdr")
+_NUMERIC_COLUMNS = ("pos_in_protein", "log2fc", "fdr", "protein_log2fc", "protein_length")
+_ESTIMATE_TYPE_COLUMNS = ("estimate_type", "estimate_type.site", "estimate_type.protein")
+_IMPUTED_ESTIMATE = "lod_imputed"
 
 
 def parse_uniprot_accession(protein_str: object) -> str | None:
@@ -133,7 +136,21 @@ def load_ptm_data(file_path: Path | str, sheet_name: int | str = 0) -> pl.DataFr
     if casts:
         df = df.with_columns(casts)
 
-    return df
+    return _with_imputation_flag(df)
+
+
+def _with_imputation_flag(df: pl.DataFrame) -> pl.DataFrame:
+    """Mark a site as imputed when any estimate behind it is a limit-of-detection imputation.
+
+    Mirrors prophosqua's ``.imputation_status``: the site estimate and, where a protein
+    estimate exists, the protein estimate both count. Tables without estimate types
+    get no ``imputed`` column.
+    """
+    present = [column for column in _ESTIMATE_TYPE_COLUMNS if column in df.columns]
+    if not present:
+        return df
+    flags = [pl.col(column) == _IMPUTED_ESTIMATE for column in present]
+    return df.with_columns(pl.any_horizontal(flags).fill_null(False).alias("imputed"))
 
 
 def filter_ptm_data(

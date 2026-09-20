@@ -99,3 +99,24 @@ def test_filter_ptm_data(tmp_path, ptm_frame):
 
     by_protein = data_loader.filter_ptm_data(df, protein_acc="NOPE")
     assert by_protein.is_empty()
+
+
+def test_load_ptm_data_derives_imputation_flag(tmp_path, ptm_frame):
+    frame = ptm_frame.with_columns(
+        pl.Series("estimate_type.site", ["observed", "lod_imputed", "observed"]),
+        pl.Series("estimate_type.protein", ["observed", "observed", None]),
+        pl.Series("diff.protein", [0.4, 0.4, None]),
+    )
+    path = tmp_path / "results.csv"
+    frame.write_csv(path)
+
+    df = data_loader.load_ptm_data(path)
+
+    assert df["imputed"].to_list() == [False, True, False]
+    assert df["protein_log2fc"].to_list() == [0.4, 0.4, None]
+
+
+def test_load_ptm_data_without_estimate_types_has_no_flag(tmp_path, ptm_frame):
+    path = tmp_path / "results.csv"
+    ptm_frame.write_csv(path)
+    assert "imputed" not in data_loader.load_ptm_data(path).columns

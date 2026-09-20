@@ -19,6 +19,13 @@ _EFFECT_COLUMNS = {
     "DPU": ("diff_diff", "FDR_I"),
     "CF": ("diff.site", "FDR.site"),
 }
+_OPTIONAL_COLUMNS = (
+    "protein_length",
+    "diff.protein",
+    "estimate_type",
+    "estimate_type.site",
+    "estimate_type.protein",
+)
 
 
 def _analysis_name(analysis: str | int) -> str:
@@ -79,6 +86,7 @@ def read_ptm_mudata(path: Path, analysis: str | int) -> pl.DataFrame:
         )
     effect, fdr = _EFFECT_COLUMNS[name]
     annotation = "gene_name.site" if "gene_name.site" in data.columns else "gene_name"
+    optional = [column for column in _OPTIONAL_COLUMNS if column in data.columns]
     return data.select(
         "protein_Id",
         "site",
@@ -89,6 +97,7 @@ def read_ptm_mudata(path: Path, analysis: str | int) -> pl.DataFrame:
         pl.col(annotation).alias("gene_name"),
         pl.col(effect).alias("diff.site"),
         pl.col(fdr).alias("FDR.site"),
+        *optional,
     )
 
 

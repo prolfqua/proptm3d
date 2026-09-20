@@ -59,6 +59,7 @@ def build_ptm_records(
                 "site_name": str(row.get("site_name") or f"{protein_acc}_{mod_aa}{res_num}"),
                 "seq_window": str(row.get("sequence_window") or ""),
                 "contrast": str(row.get("contrast") or "Default"),
+                "imputed": bool(row.get("imputed") or False),
                 "plddt": plddt_val,
                 "ppse": ppse_val,
                 "x": x_val,
@@ -95,6 +96,39 @@ def build_protein_payload(
         "gene_name": gene_name,
         "uniprot_acc": protein_acc,
         "seq_len": res_df.height,
+        "protein_length": _protein_length(ptm_df, res_df),
+        "sequence": _sequence(res_df),
         "pdb_file": pdb_file,
+        "protein_log2fc": _protein_log2fc_by_contrast(ptm_df),
         "ptms": build_ptm_records(ptm_df, res_df, protein_acc),
+    }
+
+
+def _sequence(res_df: pl.DataFrame) -> str:
+    """One-letter sequence of the structure's residues in residue-number order."""
+    if res_df.is_empty():
+        return ""
+    return "".join(res_df.sort("res_num")["res_aa"].to_list())
+
+
+def _protein_length(ptm_df: pl.DataFrame, res_df: pl.DataFrame) -> int:
+    """Protein length as the quantification reported it, else the structure's residue count."""
+    if "protein_length" in ptm_df.columns:
+        lengths = ptm_df["protein_length"].drop_nulls()
+        if len(lengths):
+            return int(lengths[0])
+    return res_df.height
+
+
+def _protein_log2fc_by_contrast(ptm_df: pl.DataFrame) -> dict[str, float]:
+    """The protein-level log2FC per contrast, for the N-to-C plot's protein band."""
+    if "protein_log2fc" not in ptm_df.columns or "contrast" not in ptm_df.columns:
+        return {}
+    means = (
+        ptm_df.drop_nulls(subset=["protein_log2fc"])
+        .group_by("contrast")
+        .agg(pl.col("protein_log2fc").mean())
+    )
+    return {
+        str(row["contrast"]): float(row["protein_log2fc"]) for row in means.iter_rows(named=True)
     }
