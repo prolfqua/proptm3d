@@ -38,17 +38,20 @@ REPORT_DICT = {
 
 
 def test_write_catalog_json(tmp_path):
-    path = webapp.write_catalog(tmp_path, [REPORT], JsonPayloadWriter())
+    path = webapp.write_catalog(tmp_path, [REPORT], JsonPayloadWriter(), 0.05)
 
     assert path == tmp_path / "data" / "catalog.json"
-    assert json.loads(path.read_text(encoding="utf-8")) == {"proteins": [REPORT_DICT]}
+    assert json.loads(path.read_text(encoding="utf-8")) == {
+        "proteins": [REPORT_DICT],
+        "fdr_threshold": 0.05,
+    }
 
 
 def test_write_catalog_cbor(tmp_path):
-    path = webapp.write_catalog(tmp_path, [REPORT], CborPayloadWriter())
+    path = webapp.write_catalog(tmp_path, [REPORT], CborPayloadWriter(), 0.25)
 
     assert path == tmp_path / "data" / "catalog.cbor"
-    assert cbor2.loads(path.read_bytes()) == {"proteins": [REPORT_DICT]}
+    assert cbor2.loads(path.read_bytes()) == {"proteins": [REPORT_DICT], "fdr_threshold": 0.25}
 
 
 def test_install_app(tmp_path):
@@ -66,11 +69,14 @@ def test_install_app(tmp_path):
     assert (tmp_path / "vendor" / "lit.js").exists()
     assert (tmp_path / "vendor" / "cbor.js").exists()
     assert (tmp_path / "vendor" / "tabulator.js").exists()
+    assert (tmp_path / "vendor" / "plotly.js").exists()
+    assert (tmp_path / "panels" / "ntoc.js").exists()
+    assert (tmp_path / "render" / "plotly.js").exists()
 
 
 def test_server_serves_catalog_and_apps(tmp_path):
     webapp.install_app(tmp_path)
-    webapp.write_catalog(tmp_path, [REPORT], CborPayloadWriter())
+    webapp.write_catalog(tmp_path, [REPORT], CborPayloadWriter(), 0.05)
 
     with webapp.create_server(tmp_path, port=0) as httpd:
         port = httpd.server_address[1]

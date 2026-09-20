@@ -185,7 +185,7 @@ def run_ptm3d_pipeline(
         reports.append(report)
         logger.info("Saved {} and {}", report.data_file, report.pml_file)
 
-    write_catalog(out_dir, reports, writer)
+    write_catalog(out_dir, reports, writer, min_fdr)
     if enrichment_files:
         enrichment = load_gsea_results(enrichment_files, analysis=sheet)
         catalog_accs = {report.uniprot_acc for report in reports}

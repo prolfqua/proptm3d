@@ -21,6 +21,7 @@ The Makefile follows the `anndata_bridge/python_package_template` convention (uv
 ```bash
 make sync         # uv sync --frozen --group dev
 make test         # pytest with branch coverage (90% gate)
+make test-web     # node --test over tests/web/*.test.mjs (needs node on PATH)
 make format       # ruff format + autofix
 make lint         # ruff check + lint-imports (dependency-direction contract)
 make deps         # deptry dependency validation
@@ -53,6 +54,8 @@ Dependency direction is `cli -> pipeline -> leaf modules`, enforced by the Impor
 | `web_visualizer.py` | Standalone self-contained HTML dashboards (embedded data); reuses `protein_data.build_ptm_records` (declared one-way edge) |
 | `pymol_exporter.py` | `.pml` scripts coloring PTM residues by log2FC on a green-white-red scale |
 | `webapp.py` | `ProteinReport`, the `data/catalog.*` writer, copying the static app assets, and the local HTTP server |
+| `assets/panels/ntoc.js` | Pure N-to-C lollipop figure builder (rows of decorated sites in, Plotly `{data, layout, records}` out); tested under node in `tests/web/` |
+| `assets/render/plotly.js` | The Plotly backend for the N-to-C pane: `Plotly.react`, manual sizing, click routing through `customdata` |
 | `assets/` | Two static browser apps: `index.html`+`app.js` (classic cards) and `lit.html`+`lit-app.js` (Lit + Tabulator table view), sharing `payload.js` (fetch/decode, cbor-x), `color.js`, `viewer3d.js`; `vendor/` holds pinned CDN re-export shims (lit 3.2.1, cbor-x 1.6.6, tabulator 6.5.2 — same stack as BioBeamer/rawDIAGQC) |
 
 Tests in `tests/` stub all network access (`structure_fetcher.requests` or `pipeline.fetch_structure` are

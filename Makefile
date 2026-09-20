@@ -3,7 +3,7 @@ DIR ?= output_3d
 PORT ?= 8000
 
 .DEFAULT_GOAL := help
-.PHONY: help sync format format-check lint deps test build check clean serve example
+.PHONY: help sync format format-check lint deps test test-web build check clean serve example
 
 help:  ## Show developer commands
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -29,13 +29,17 @@ deps:  ## Validate dependency declarations
 test:  ## Run tests with branch coverage
 	$(VENV_BIN)/pytest --cov --cov-branch
 
+test-web:  ## Run the browser app's pure-module tests under Node
+	@command -v node >/dev/null || { echo "node is required for the browser tests"; exit 1; }
+	node --test "tests/web/*.test.mjs"
+
 build:  ## Build and validate source and wheel distributions
 	uv build
 	$(VENV_BIN)/twine check dist/*
 
 check:  ## Run every merge-blocking quality gate
 	uv lock --check
-	$(MAKE) format-check lint deps test build
+	$(MAKE) format-check lint deps test test-web build
 
 serve:  ## Serve an output directory (DIR=output_3d PORT=8000)
 	$(VENV_BIN)/ptm3d serve $(DIR) --port $(PORT)

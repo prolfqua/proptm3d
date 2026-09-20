@@ -4,6 +4,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+- N-to-C lollipop pane under the 3D panels of the table view: one row per drawn
+  contrast sharing the residue axis, a stick from zero to each site's log2FC, heads
+  colored like the 3D spheres, dashed sticks and open heads for imputed estimates, an
+  asterisk over sites at or below the run's FDR threshold, and a band at the
+  protein-level log2FC where the analysis has one. Clicking a head selects the site row
+  exactly like clicking a sphere; the selected site gets the large head. The figure is
+  built by the pure module `assets/panels/ntoc.js` (node tests under `tests/web/`,
+  `make test-web`) and drawn by Plotly (`assets/render/plotly.js`, pinned in
+  `vendor/plotly.js`).
+- `--fdr` on the CLI: the significance threshold for protein selection and the
+  catalog's significant-site counts, recorded in the catalog as `fdr_threshold`; the
+  ptm-pipeline rule passes its own `fdr` so the 3D catalog agrees with the reports.
+- Payloads carry `sequence`, `protein_length`, `protein_log2fc` per contrast and an
+  `imputed` flag per site, derived from the `estimate_type` columns the way
+  prophosqua's `.imputation_status` does; the MuData reader passes those columns
+  through.
+
 - Preserve missing integer and logical annotations when reading MuData written by R, including DPU protein-only rows without a site position.
 
 - Read PTM statistics and embedded enrichment directly from final prophosqua MuData, before delivery workbooks are exported.

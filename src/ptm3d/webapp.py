@@ -22,9 +22,12 @@ _ASSET_NAMES = (
     "payload.js",
     "color.js",
     "viewer3d.js",
+    "panels/ntoc.js",
+    "render/plotly.js",
     "vendor/lit.js",
     "vendor/cbor.js",
     "vendor/tabulator.js",
+    "vendor/plotly.js",
 )
 
 
@@ -56,7 +59,10 @@ class ProteinReport:
 
 
 def write_catalog(
-    output_dir: Path | str, reports: list[ProteinReport], writer: PayloadWriter
+    output_dir: Path | str,
+    reports: list[ProteinReport],
+    writer: PayloadWriter,
+    fdr_threshold: float,
 ) -> Path:
     """Write ``data/catalog.<suffix>`` listing every processed protein.
 
@@ -64,11 +70,16 @@ def write_catalog(
         output_dir: Root of the generated output.
         reports: One entry per processed protein.
         writer: Serializer deciding the on-disk format (JSON or CBOR).
+        fdr_threshold: The significance threshold the run used, so the app marks
+            the same sites the catalog counted.
 
     Returns:
         The path of the written catalog file.
     """
-    payload = {"proteins": [asdict(report) for report in reports]}
+    payload = {
+        "proteins": [asdict(report) for report in reports],
+        "fdr_threshold": fdr_threshold,
+    }
     return writer.write(payload, Path(output_dir) / "data" / "catalog")
 
 

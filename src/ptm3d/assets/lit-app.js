@@ -21,9 +21,15 @@
 //
 // Viewer panels are pooled per contrast: filtering with an unchanged contrast set
 // reuses the existing 3Dmol viewer (and its loaded model) and only redraws marks.
+//
+// Under the 3D panels, the N-to-C pane draws the same decorated sites as a
+// lollipop figure, one row per drawn contrast; clicking a head routes through the
+// site table's selection exactly like clicking a sphere does.
 
 import { foldChangeColor } from './color.js'
+import { ntocFigure } from './panels/ntoc.js'
 import { loadCatalog, loadCategories, loadPayload, loadText } from './payload.js'
+import { clearFigure, renderFigure, resizeFigure } from './render/plotly.js'
 import { LitElement, html, nothing } from './vendor/lit.js'
 import { TabulatorFull } from './vendor/tabulator.js'
 import { centerSite, renderPtmSites } from './viewer3d.js'
@@ -121,7 +127,8 @@ class PtmApp extends LitElement {
     memberMode: { type: String },
     colorBy: { type: String },
     hasCategories: { type: Boolean },
-    leftWidth: { type: Number }
+    leftWidth: { type: Number },
+    ntocHeight: { type: Number }
   }
 
   createRenderRoot () {
@@ -141,6 +148,10 @@ class PtmApp extends LitElement {
     this.colorBy = 'log2fc'
     this.hasCategories = false
     this.leftWidth = 520
+    this.ntocHeight = 250
+    this.fdrThreshold = 0.05
+    this.protein = null // The loaded protein payload.
+    this.ntocRecords = [] // Records the N-to-C heads' customdata index into.
     this.categoriesPayload = null
     this.table = null
     this.proteinTable = null
@@ -278,6 +289,7 @@ class PtmApp extends LitElement {
     try {
       const [catalog, categories] = await Promise.all([loadCatalog(), loadCategories()])
       this.proteins = catalog.proteins
+      this.fdrThreshold = catalog.fdr_threshold ?? 0.05
       this.categoriesPayload = categories
       this.hasCategories = categories !== null && Object.keys(categories.contrasts).length > 0
     } catch (error) {
@@ -421,12 +433,13 @@ class PtmApp extends LitElement {
 
     const data = await loadPayload(entry.data_file)
     this.pdbText = await loadText(data.pdb_file)
+    this.protein = data
 
     this.ptms = data.ptms.map((p) => ({
       ...p,
       site: `${p.mod_aa}${p.res_num}`
     }))
-    this.meta = `${data.gene_name} (${data.uniprot_acc}) | ${data.seq_len} AAs`
+    this.meta = `${data.gene_name} (${data.uniprot_acc}) | ${data.protein_length || data.seq_len} AAs`
     this.pmlFile = entry.pml_file
     this.status = ''
 
@@ -440,6 +453,7 @@ class PtmApp extends LitElement {
   clearPanels () {
     this.viewerPanels.forEach(({ panel }) => panel.remove())
     this.viewerPanels.clear()
+    clearFigure(this.querySelector('#ntoc'))
   }
 
   ensurePanel (contrast) {
@@ -515,12 +529,35 @@ class PtmApp extends LitElement {
       }
       renderPtmSites(viewer, list, this.styleChoice, (p) => this.selectRowFor(p), highlightResNum)
     })
+    this.renderNtoc(sorted.map((contrast) => ({ contrast, ptms: groups.get(contrast) })))
     // Panel widths change with the panel count; 3Dmol must re-measure its canvases.
     requestAnimationFrame(() => {
       this.viewerPanels.forEach(({ viewer }) => {
         viewer.resize()
         viewer.render()
       })
+    })
+  }
+
+  /** Draw the lollipop rows for the contrasts the 3D panels show. */
+  renderNtoc (rows) {
+    const host = this.querySelector('#ntoc')
+    if (!rows.length) {
+      clearFigure(host)
+      return
+    }
+    this.ntocHeight = Math.min(150 * rows.length + 100, Math.round(window.innerHeight * 0.45))
+    const figure = ntocFigure({
+      rows,
+      proteinLength: this.protein.protein_length || this.protein.seq_len,
+      proteinLog2fc: this.protein.protein_log2fc || {},
+      fdrThreshold: this.fdrThreshold,
+      highlighted: this.highlighted
+    })
+    this.ntocRecords = figure.records
+    renderFigure(host, figure, {
+      height: this.ntocHeight - 24,
+      onClick: (index) => this.selectRowFor(this.ntocRecords[index])
     })
   }
 
@@ -556,6 +593,7 @@ class PtmApp extends LitElement {
         viewer.resize()
         viewer.render()
       })
+      resizeFigure(this.querySelector('#ntoc'))
     }
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', up)
@@ -630,7 +668,13 @@ class PtmApp extends LitElement {
           </div>
         </div>
         <div class="splitter" @pointerdown=${this.startResize}></div>
-        <div class="viewer-host"><div id="viewers"></div></div>
+        <div class="right-col">
+          <div class="viewer-host"><div id="viewers"></div></div>
+          <div class="ntoc-pane" style="height:${this.ntocHeight}px">
+            <div class="pane-title">N-to-C</div>
+            <div id="ntoc" class="pane-body"></div>
+          </div>
+        </div>
       </div>
     `
   }
