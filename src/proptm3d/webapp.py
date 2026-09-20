@@ -17,13 +17,14 @@ if TYPE_CHECKING:
 _ASSET_NAMES = (
     "index.html",
     "app.js",
-    "lit.html",
-    "lit-app.js",
-    "payload.js",
-    "color.js",
-    "viewer3d.js",
+    "lib/color.js",
+    "lib/payload.js",
+    "lib/session.js",
     "panels/ntoc.js",
     "render/plotly.js",
+    "render/tables.js",
+    "render/viewer3d.js",
+    "shell/ptm-app.js",
     "vendor/lit.js",
     "vendor/cbor.js",
     "vendor/tabulator.js",
@@ -84,7 +85,7 @@ def write_catalog(
 
 
 def install_app(output_dir: Path | str) -> None:
-    """Copy the static browser app (index.html, app.js) into the output directory.
+    """Copy the static browser app (index.html, app.js and its modules) into the output directory.
 
     Args:
         output_dir: Root of the generated output.

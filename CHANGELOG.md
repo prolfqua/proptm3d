@@ -4,6 +4,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- One browser app instead of two, laid out as rawDIAGQC's viewer is: `app.js` is the
+  composition root, `lib/session.js` holds the selection state and every derivation
+  the views need (contrast scope, category membership, site decoration, rows per
+  contrast) with node tests, `shell/ptm-app.js` is a Lit shell that only emits
+  intents, and `render/` holds the Tabulator, 3Dmol (`ViewerPool`) and Plotly
+  backends. Two workspaces in a tab strip: **Find** (categories and the protein table
+  with header filters and a matched/total counter; a row click opens the protein) and
+  **Protein** (site table, one 3D panel per contrast with a pLDDT and log2FC legend
+  overlay, the N-to-C pane). The classic card app (`index.html` + old `app.js`), the
+  `lit.html` page and its monolithic `lit-app.js` are gone; `index.html` is the app.
+- The site table shows an imputation column; 3Dmol is pinned to 2.5.5 on jsdelivr
+  instead of the unversioned 3dmol.org build.
+
 ### Renamed
 
 - The project, package and console script are now `proptm3d` (`import proptm3d`,

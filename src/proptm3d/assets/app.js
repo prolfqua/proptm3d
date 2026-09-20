@@ -1,156 +1,223 @@
-// proptm3d browser app: loads the run catalog plus per-protein data + PDB files
-// written by the proptm3d pipeline (JSON or CBOR) and renders them with 3Dmol.js.
+// The composition root: loads the catalog, owns the session, builds the tables,
+// the 3D panel pool and the N-to-C figure into the shell's hosts, and applies
+// the shell's intents.
+//
+// Selection model:
+// - The contrast select scopes everything: the category table, the protein
+//   table's Sig./Max FC columns, the site table, the 3D panels (one per contrast
+//   under "All contrasts") and the N-to-C rows.
+// - Selecting a category keeps only member proteins and sites in the tables; the
+//   figures keep every site of the scope and mark the members.
+// - Selecting a site row, a sphere or a lollipop head highlights and centers that
+//   site, never changing which sites are drawn.
 
-import { foldChangeColor } from './color.js';
-import { loadCatalog, loadPayload, loadText } from './payload.js';
-import { centerSite, renderPtmSites } from './viewer3d.js';
+import { loadCatalog, loadCategories, loadPayload, loadText } from './lib/payload.js'
+import { Session } from './lib/session.js'
+import { ntocFigure } from './panels/ntoc.js'
+import { clearFigure, renderFigure, resizeFigure } from './render/plotly.js'
+import { categoriesTable, proteinTable, siteTable, tableReady } from './render/tables.js'
+import { ViewerPool } from './render/viewer3d.js'
+import './shell/ptm-app.js'
 
-const state = {
-    viewer: null,
-    catalog: { proteins: [] },
-    ptms: [],
-    seqLen: 0,
-    highlightedResNum: null,
-};
+class App {
+  constructor (shell, session) {
+    this.shell = shell
+    this.session = session
+    this.visibleSites = []
+    this.ntocRecords = []
+    this.currentProtein = null
+  }
 
-async function init() {
-    const element = document.getElementById('g3d_viewer');
-    state.viewer = $3Dmol.createViewer(element, { backgroundColor: '#0b0f19' });
+  async start () {
+    const { shell, session } = this
+    shell.contrasts = session.contrasts
+    shell.contrast = session.contrast
+    shell.hasCategories = session.hasCategories
+    shell.total = session.proteins.length
+    shell.meta = `${session.proteins.length} proteins in the catalog`
+    await shell.updateComplete
 
-    try {
-        state.catalog = await loadCatalog();
-    } catch (error) {
-        document.getElementById('proteinMeta').textContent =
-            'Could not load the data/ catalog - serve this folder over HTTP (proptm3d serve).';
-        throw error;
+    this.categories = categoriesTable(shell.querySelector('#categoriesTable'))
+    this.proteins = proteinTable(shell.querySelector('#proteinTable'))
+    this.sites = siteTable(shell.querySelector('#ptmTable'), () => this.windowTerms)
+    this.viewers = new ViewerPool(shell.querySelector('#viewers'))
+    this.ntocHost = shell.querySelector('#ntoc')
+    await Promise.all([this.categories, this.proteins, this.sites].map(tableReady))
+
+    this.categories.on('rowSelectionChanged', (data) => (data.length ? this.selectTerm(data[0]) : this.clearTerm()))
+    this.proteins.on('rowClick', (_event, row) => this.openProtein(row.getData().uniprot_acc))
+    this.proteins.on('dataFiltered', (_filters, rows) => { shell.matched = rows.length })
+    this.proteins.setFilter((row) => session.proteinVisible(row))
+    this.sites.on('dataFiltered', (_filters, rows) => {
+      this.visibleSites = rows.map((row) => row.getData())
+      this.draw()
+    })
+    this.sites.on('rowSelectionChanged', (data) => (data.length ? this.showSite(data[0]) : this.clearSite()))
+    shell.addEventListener('intent', (event) => this.apply(event.detail))
+
+    this.refreshCategories()
+    await this.proteins.setData(session.proteinRows())
+    if (!session.proteins.length) shell.meta = 'Catalog is empty.'
+  }
+
+  apply ({ type, value }) {
+    const { shell, session } = this
+    if (type === 'workspace') {
+      shell.workspace = value
+      shell.updateComplete.then(() => this.relayout())
+    } else if (type === 'contrast') {
+      session.setContrast(value)
+      shell.contrast = value
+      shell.colorBy = session.colorBy
+      shell.status = ''
+      this.refreshCategories()
+      const selected = this.proteins.getSelectedData()[0]
+      this.proteins.setData(session.proteinRows()).then(() => {
+        if (selected) this.proteins.selectRow(selected.uniprot_acc)
+        this.proteins.refreshFilter()
+      })
+      this.applySiteFilter()
+    } else if (type === 'member-mode') {
+      session.setMemberMode(value)
+      shell.memberMode = value
+      this.refreshCategories()
+      if (session.term) {
+        this.proteins.refreshFilter()
+        this.applySiteFilter()
+      } else {
+        this.sites.redraw() // The Cat. column values follow the member mode.
+      }
+    } else if (type === 'color-by') {
+      session.colorBy = value
+      shell.colorBy = value
+      this.draw()
+    } else if (type === 'style') {
+      session.styleChoice = value
+      shell.styleChoice = value
+      this.draw()
+    } else if (type === 'layout') {
+      this.relayout()
     }
+  }
 
-    const select = document.getElementById('proteinSelect');
-    state.catalog.proteins.forEach((p, i) => {
-        const option = document.createElement('option');
-        option.value = i;
-        option.textContent = `${p.gene_name} (${p.uniprot_acc}) - ${p.sig_count} significant sites`;
-        select.appendChild(option);
-    });
-    select.onchange = () => loadProtein(Number(select.value));
-    document.getElementById('styleSelect').onchange = renderPTMs;
-    document.getElementById('contrastSelect').onchange = renderContrast;
+  /** Tables and figures re-measure after a workspace switch or a splitter drag. */
+  relayout () {
+    ;[this.categories, this.proteins, this.sites].forEach((table) => table.redraw(true))
+    this.viewers.resize()
+    resizeFigure(this.ntocHost)
+  }
 
-    if (state.catalog.proteins.length) {
-        await loadProtein(0);
+  refreshCategories () {
+    this.windowTerms = this.session.windowTerms()
+    const keep = this.session.term ? this.session.term.key : null
+    this.categories.setData(this.session.categoryRows()).then(() => {
+      if (keep && this.categories.getRow(keep)) this.categories.selectRow(keep)
+    })
+  }
+
+  selectTerm (term) {
+    this.session.selectTerm(term)
+    this.shell.colorBy = this.session.colorBy
+    this.shell.status = this.session.termStatus(term)
+    this.proteins.refreshFilter()
+    this.applySiteFilter()
+  }
+
+  clearTerm () {
+    this.session.clearTerm()
+    this.shell.colorBy = this.session.colorBy
+    this.shell.status = ''
+    this.proteins.refreshFilter()
+    this.applySiteFilter()
+  }
+
+  applySiteFilter () {
+    this.sites.setFilter((row) => this.session.siteVisible(row))
+  }
+
+  async openProtein (accession) {
+    const entry = this.session.proteins.find((p) => p.uniprot_acc === accession)
+    if (!entry) return
+    this.proteins.deselectRow()
+    this.proteins.selectRow(accession)
+    const payload = await loadPayload(entry.data_file)
+    const pdbText = await loadText(payload.pdb_file)
+    this.session.setProtein(payload)
+    this.currentProtein = entry
+    this.viewers.setModel(pdbText)
+    clearFigure(this.ntocHost)
+    this.shell.proteinLabel = this.session.proteinLabel
+    this.shell.pmlFile = entry.pml_file
+    this.shell.status = ''
+    await this.sites.setData(this.session.ptms)
+    this.applySiteFilter()
+    this.apply({ type: 'workspace', value: 'protein' })
+  }
+
+  showSite (p) {
+    this.session.highlight(p)
+    this.shell.status = this.session.siteStatus(p)
+    this.draw()
+    this.viewers.center(p)
+  }
+
+  clearSite () {
+    this.session.highlight(null)
+    this.shell.status = ''
+    this.draw()
+  }
+
+  /** A click on a sphere or a lollipop head routes through the table's selection when it can. */
+  selectRowFor (p) {
+    const row = this.sites
+      .getRows('active')
+      .find((r) => r.getData().site === p.site && r.getData().contrast === p.contrast)
+    if (row) {
+      this.sites.deselectRow()
+      row.select()
     } else {
-        document.getElementById('proteinMeta').textContent = 'Catalog is empty.';
+      this.showSite(p)
     }
+  }
+
+  draw () {
+    const { session, shell } = this
+    if (!session.protein) return
+    const rows = session.rows(this.visibleSites)
+    this.viewers.render(rows, session.styleChoice, session.highlighted, (p) => this.selectRowFor(p))
+    if (!rows.length) {
+      clearFigure(this.ntocHost)
+      return
+    }
+    shell.ntocHeight = Math.min(150 * rows.length + 100, Math.round(window.innerHeight * 0.45))
+    const figure = ntocFigure({
+      rows,
+      proteinLength: session.protein.protein_length || session.protein.seq_len,
+      proteinLog2fc: session.protein.protein_log2fc || {},
+      fdrThreshold: session.fdrThreshold,
+      highlighted: session.highlighted
+    })
+    this.ntocRecords = figure.records
+    renderFigure(this.ntocHost, figure, {
+      height: shell.ntocHeight - 24,
+      onClick: (index) => this.selectRowFor(this.ntocRecords[index])
+    })
+  }
 }
 
-async function loadProtein(index) {
-    const entry = state.catalog.proteins[index];
-    const data = await loadPayload(entry.data_file);
-    const pdbText = await loadText(data.pdb_file);
-
-    state.ptms = data.ptms.map((p) => ({ ...p, color: foldChangeColor(p.log2fc) }));
-    state.seqLen = data.seq_len;
-    state.highlightedResNum = null;
-
-    document.getElementById('proteinMeta').innerHTML =
-        `Protein: <strong>${data.gene_name}</strong> (${data.uniprot_acc}) | Length: ${data.seq_len} AAs`;
-    const pmlLink = document.getElementById('pmlLink');
-    pmlLink.href = entry.pml_file;
-
-    const contrasts = [...new Set(state.ptms.map((p) => p.contrast))].sort();
-    const contrastSelect = document.getElementById('contrastSelect');
-    contrastSelect.innerHTML = '';
-    (contrasts.length ? contrasts : ['Default']).forEach((c) => {
-        const option = document.createElement('option');
-        option.value = c;
-        option.textContent = c;
-        contrastSelect.appendChild(option);
-    });
-
-    state.viewer.removeAllModels();
-    state.viewer.addModel(pdbText, 'pdb');
-    renderContrast();
-    state.viewer.zoomTo();
-    state.viewer.render();
+async function main () {
+  const shell = document.querySelector('ptm-app')
+  let catalog
+  let categories
+  try {
+    ;[catalog, categories] = await Promise.all([loadCatalog(), loadCategories()])
+  } catch (error) {
+    shell.meta = 'Could not load the data/ catalog - serve this folder over HTTP (proptm3d serve).'
+    throw error
+  }
+  const app = new App(shell, new Session(catalog, categories))
+  shell.app = app // Exposed for browser-side inspection and tests.
+  await app.start()
 }
 
-function currentPtms() {
-    const contrast = document.getElementById('contrastSelect').value;
-    return state.ptms.filter((p) => p.contrast === contrast);
-}
-
-function renderPTMs() {
-    const styleChoice = document.getElementById('styleSelect').value;
-    const legendDiv = document.getElementById('plddtLegend');
-    legendDiv.style.display = styleChoice === 'plddt' ? 'grid' : 'none';
-    renderPtmSites(
-        state.viewer, currentPtms(), styleChoice, highlightResidue, state.highlightedResNum
-    );
-}
-
-function highlightResidue(p) {
-    const infoDiv = document.getElementById('infoCard');
-    infoDiv.innerHTML = `
-        <div class="card-title">Residue Inspection</div>
-        <div style="font-size: 1.1rem; font-weight: 700; color: #ffffff; margin-bottom: 0.4rem;">
-            ${p.mod_aa}${p.res_num} (${p.site_name})
-        </div>
-        <div style="font-size: 0.85rem; margin-bottom: 0.3rem;">
-            <span class="ptm-badge" style="background-color: ${p.color}">log2FC: ${p.log2fc > 0 ? '+' : ''}${p.log2fc.toFixed(2)}</span>
-        </div>
-        <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">
-            FDR: <strong>${p.fdr < 0.001 ? p.fdr.toExponential(2) : p.fdr.toFixed(3)}</strong> | p-value: ${p.p_value.toFixed(4)}
-        </div>
-        <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">
-            AlphaFold pLDDT: <strong>${p.plddt ? p.plddt.toFixed(1) : 'N/A'}</strong> (Confidence)
-        </div>
-        <div style="font-size: 0.8rem; color: #cbd5e1; background: #1e293b; padding: 0.4rem; border-radius: 4px; font-family: monospace;">
-            Window: ${p.seq_window || 'N/A'}
-        </div>
-    `;
-    state.highlightedResNum = p.res_num;
-    renderPTMs();
-    centerSite(state.viewer, p);
-}
-
-function renderContrast() {
-    renderPTMs();
-    renderNtoCTrack();
-    populateTable();
-}
-
-function renderNtoCTrack() {
-    const track = document.getElementById('ntocTrack');
-    track.querySelectorAll('.ptm-pin').forEach((el) => el.remove());
-
-    currentPtms().forEach((p) => {
-        const pct = (p.res_num / state.seqLen) * 100;
-        const pin = document.createElement('div');
-        pin.className = 'ptm-pin';
-        pin.style.left = `calc(${pct}% * 0.95 + 2.5%)`;
-        pin.style.backgroundColor = p.color;
-        pin.title = `${p.mod_aa}${p.res_num} (log2FC=${p.log2fc.toFixed(2)})`;
-        pin.onclick = () => highlightResidue(p);
-        track.appendChild(pin);
-    });
-}
-
-function populateTable() {
-    const tbody = document.getElementById('ptmTableBody');
-    tbody.innerHTML = '';
-
-    const filtered = [...currentPtms()].sort((a, b) => a.fdr - b.fdr);
-    filtered.forEach((p) => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td><strong>${p.mod_aa}${p.res_num}</strong></td>
-            <td><span class="ptm-badge" style="background-color: ${p.color}">${p.log2fc > 0 ? '+' : ''}${p.log2fc.toFixed(2)}</span></td>
-            <td>${p.fdr < 0.001 ? p.fdr.toExponential(1) : p.fdr.toFixed(3)}</td>
-            <td>${p.plddt ? p.plddt.toFixed(0) : '-'}</td>
-        `;
-        tr.onclick = () => highlightResidue(p);
-        tbody.appendChild(tr);
-    });
-}
-
-document.addEventListener('DOMContentLoaded', init);
+main()

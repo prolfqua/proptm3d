@@ -59,19 +59,11 @@ def test_install_app(tmp_path):
 
     index_html = (tmp_path / "index.html").read_text(encoding="utf-8")
     assert '<script type="module" src="app.js"></script>' in index_html
-    lit_html = (tmp_path / "lit.html").read_text(encoding="utf-8")
-    assert "<ptm-app></ptm-app>" in lit_html
-    payload_js = (tmp_path / "payload.js").read_text(encoding="utf-8")
+    assert "<ptm-app></ptm-app>" in index_html
+    payload_js = (tmp_path / "lib" / "payload.js").read_text(encoding="utf-8")
     assert "catalog.cbor" in payload_js
-    assert (tmp_path / "lit-app.js").exists()
-    assert (tmp_path / "color.js").exists()
-    assert (tmp_path / "viewer3d.js").exists()
-    assert (tmp_path / "vendor" / "lit.js").exists()
-    assert (tmp_path / "vendor" / "cbor.js").exists()
-    assert (tmp_path / "vendor" / "tabulator.js").exists()
-    assert (tmp_path / "vendor" / "plotly.js").exists()
-    assert (tmp_path / "panels" / "ntoc.js").exists()
-    assert (tmp_path / "render" / "plotly.js").exists()
+    for name in webapp._ASSET_NAMES:
+        assert (tmp_path / name).exists(), name
 
 
 def test_server_serves_catalog_and_apps(tmp_path):
@@ -88,8 +80,8 @@ def test_server_serves_catalog_and_apps(tmp_path):
                 assert response.headers["Cache-Control"] == "no-cache"
             assert payload["proteins"][0]["gene_name"] == "MAPK1"
             with urllib.request.urlopen(f"http://127.0.0.1:{port}/index.html") as response:
-                assert b"3D PTM" in response.read()
-            with urllib.request.urlopen(f"http://127.0.0.1:{port}/lit.html") as response:
+                assert b"<ptm-app>" in response.read()
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/app.js") as response:
                 assert b"ptm-app" in response.read()
         finally:
             httpd.shutdown()

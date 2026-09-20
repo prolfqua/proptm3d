@@ -26,7 +26,7 @@ def test_run_pipeline_generates_all_outputs(tmp_path, input_csv, pdb_file, monke
     assert index_path == out_dir / "index.html"
     assert index_path.exists()
     assert (out_dir / "app.js").exists()
-    assert (out_dir / "lit.html").exists()
+    assert (out_dir / "shell" / "ptm-app.js").exists()
     # CBOR is the default payload format.
     assert (out_dir / "data" / "MAPK1_P28482.cbor").exists()
     assert (out_dir / "MAPK1_P28482_3d.html").exists()  # Standalone HTML path, on by default.

@@ -87,3 +87,86 @@ export function centerSite (viewer, p) {
   if (p.x === null || p.y === null || p.z === null) return
   viewer.center({ resno: p.res_num }, 500)
 }
+
+/**
+ * One 3Dmol panel per contrast, pooled: redrawing with an unchanged contrast set
+ * reuses the loaded model and only redraws the site marks.
+ */
+export class ViewerPool {
+  /** @param {HTMLElement} host The element that holds the panels side by side. */
+  constructor (host) {
+    this.host = host
+    this.panels = new Map() // contrast -> { panel, viewer }
+    this.pdbText = ''
+  }
+
+  /** A new protein invalidates every panel's loaded model. */
+  setModel (pdbText) {
+    this.pdbText = pdbText
+    this.clear()
+  }
+
+  clear () {
+    this.panels.forEach(({ panel }) => panel.remove())
+    this.panels.clear()
+  }
+
+  #ensure (contrast) {
+    let entry = this.panels.get(contrast)
+    if (entry) return entry
+    const panel = document.createElement('div')
+    panel.className = 'viewer-panel'
+    const label = document.createElement('div')
+    label.className = 'panel-label'
+    label.textContent = contrast
+    const molHost = document.createElement('div')
+    molHost.className = 'mol-host'
+    panel.append(label, molHost)
+    this.host.append(panel)
+    const viewer = $3Dmol.createViewer(molHost, { backgroundColor: '#0b0f19' })
+    viewer.addModel(this.pdbText, 'pdb')
+    viewer.zoomTo()
+    entry = { panel, viewer }
+    this.panels.set(contrast, entry)
+    return entry
+  }
+
+  /**
+   * Draw the rows: one panel per contrast, removing panels no row needs.
+   *
+   * @param {Array<{contrast: string, ptms: object[]}>} rows Decorated sites per contrast.
+   * @param {string} styleChoice Backbone color choice.
+   * @param {{contrast: string, resNum: number}|null} highlighted The emphasized site.
+   * @param {function(object): void} onSelect Called with the record when a sphere is clicked.
+   */
+  render (rows, styleChoice, highlighted, onSelect) {
+    if (!this.pdbText) return
+    const wanted = new Set(rows.map((row) => row.contrast))
+    for (const [contrast, { panel }] of [...this.panels]) {
+      if (!wanted.has(contrast)) {
+        panel.remove()
+        this.panels.delete(contrast)
+      }
+    }
+    rows.forEach(({ contrast, ptms }) => {
+      const { viewer } = this.#ensure(contrast)
+      const highlightResNum = highlighted && highlighted.contrast === contrast ? highlighted.resNum : null
+      renderPtmSites(viewer, ptms, styleChoice, onSelect, highlightResNum)
+    })
+    // Panel widths change with the panel count; 3Dmol must re-measure its canvases.
+    requestAnimationFrame(() => this.resize())
+  }
+
+  /** Pan the panel of one contrast to a site, keeping the zoom level. */
+  center (p) {
+    const entry = this.panels.get(p.contrast)
+    if (entry) centerSite(entry.viewer, p)
+  }
+
+  resize () {
+    this.panels.forEach(({ viewer }) => {
+      viewer.resize()
+      viewer.render()
+    })
+  }
+}

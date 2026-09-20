@@ -4,7 +4,7 @@
 // side); the extension is the contract, so the decoder is picked from the URL. The
 // catalog's format is not known up front and is discovered by probing.
 
-import { decode } from './vendor/cbor.js'
+import { decode } from '../vendor/cbor.js'
 
 /**
  * Fetch and decode one payload file (.json or .cbor).

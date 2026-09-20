@@ -21,8 +21,8 @@ The structural context metrics and visual principles are inspired by Bludau et a
 - **log2FC site encoding**: PTM sites are rendered as spheres at their residue coordinates with text callouts,
   colored on the classic green-white-red scale (green = down-regulated, white = unchanged, red = up-regulated),
   chosen to stay distinguishable from the blue/cyan pLDDT backbone coloring.
-- **Linked 1D-3D views**: an interactive 1D N-to-C sequence track is synchronized with the 3D viewer; clicking a
-  PTM site on the track centers, zooms, and highlights the corresponding residue in 3D.
+- **Linked 1D-3D views**: an N-to-C lollipop plot (log2FC per site along the sequence, one row per contrast) is
+  synchronized with the 3D viewer and the site table; selecting a site anywhere centers and highlights it everywhere.
 - **Multi-contrast dropdown**: switch between experimental condition comparisons (e.g. `ConditionA_vs_Control`
   vs `ConditionB_vs_Control`) within the app.
 - **Structural context annotations**: AlphaFold pLDDT confidence, a CA-neighbor exposure score, and disordered
@@ -74,18 +74,19 @@ proptm3d --input PTM_results.xlsx --output_dir output_3d \
 
 There are two visualization paths:
 
-- **Data + browser apps** (primary): the pipeline writes per-protein data files and a catalog under
+- **Data + browser app** (primary): the pipeline writes per-protein data files and a catalog under
   `data/` — CBOR by default, plain JSON with `--format json` — plus the cached AlphaFold PDB models
-  under `structures/`. Two static JS apps are copied into the output directory and fetch those files
-  at view time (which is why the folder must be served over HTTP: `proptm3d serve`, or any static file
-  server):
-  - `index.html` — the classic card-panel dashboard;
-  - `lit.html` — a table-centric view (Lit + Tabulator, the rawDIAGQC stack): three stacked tables
-    on the left (enrichment categories when `--enrichment` was given, proteins, PTM sites), the 3D
-    viewer on the right, and a global contrast dropdown scoping all of them. Selecting a category
-    filters proteins and sites to its members (leading edge or full set, toggleable) while the
-    figure keeps all sites visible and marks the members; sphere color switches between log2FC and
-    category membership.
+  under `structures/`. A static JS app (`index.html`, Lit + Tabulator + Plotly + 3Dmol, the rawDIAGQC
+  stack) is copied into the output directory and fetches those files at view time, which is why the
+  folder must be served over HTTP (`proptm3d serve`, or any static file server). Two workspaces:
+  - **Find**: the enrichment categories (kinases, signatures, when `--enrichment` was given) and the
+    protein table with header filters; selecting a category keeps only its member proteins; a row
+    click opens the protein.
+  - **Protein**: the PTM site table with header filters on the left; on the right one 3D panel per
+    contrast and, below it, the N-to-C lollipop (sticks to each site's log2FC, heads colored like the
+    spheres, dashed for imputed estimates, asterisks at the run's FDR threshold, a band at the
+    protein-level log2FC). Selecting a site row, a sphere or a lollipop head highlights and centers
+    that site everywhere. The contrast select in the toolbar scopes both workspaces.
 - **Standalone HTML** (kept for the moment): self-contained `<gene>_<acc>_3d.html` dashboards with the
   data embedded, openable directly from disk without a server. Written by default; skip with
   `--no-html`.
