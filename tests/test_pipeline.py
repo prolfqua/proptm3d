@@ -148,69 +148,50 @@ def test_run_pipeline_with_enrichment(tmp_path, input_csv, pdb_file, monkeypatch
     assert entry["leading_sites_catalog"] == 1
 
 
-def test_cli_main(tmp_path, input_csv, pdb_file, monkeypatch):
-    monkeypatch.setattr(pipeline, "fetch_structure", lambda acc, cache_dir: pdb_file)
-    out_dir = tmp_path / "cli_output"
+def test_cli_prepare_and_clean_select_methods(tmp_path, monkeypatch):
+    calls = []
 
-    # Cyclopts exits with the command's return code after a successful run.
-    with pytest.raises(SystemExit) as excinfo:
-        cli.app(["--input", str(input_csv), "--output_dir", str(out_dir)])
-    assert excinfo.value.code == 0
-    assert (out_dir / "index.html").exists()
-    assert (out_dir / "data" / "catalog.cbor").exists()  # The CLI defaults to --format cbor.
+    def fake_prepare(input_file, output_dir, methods):
+        calls.append(("prepare", input_file, output_dir, methods))
+        return [
+            {"method": name, "counts": {"proteins": 1, "measured_sites": 2, "with_structures": 1}}
+            for name in methods
+        ]
 
-
-def test_cli_sheet_selects_workbook_sheet(tmp_path, ptm_frame, pdb_file, monkeypatch):
-    monkeypatch.setattr(pipeline, "fetch_structure", lambda acc, cache_dir: pdb_file)
-    xlsx = tmp_path / "PTM_results.xlsx"
-    with __import__("xlsxwriter").Workbook(xlsx) as wb:
-        # An unrelated first sheet: --sheet must skip it.
-        ptm_frame.rename({"protein_Id": "wrong"}).write_excel(wb, worksheet="other")
-        ptm_frame.write_excel(wb, worksheet="DPA")
-    out_dir = tmp_path / "sheet_output"
-
-    with pytest.raises(SystemExit) as excinfo:
-        cli.app(["--input", str(xlsx), "--output_dir", str(out_dir), "--sheet", "DPA"])
-    assert excinfo.value.code == 0
-    assert (out_dir / "data" / "MAPK1_P28482.cbor").exists()
-
-
-def test_cli_format_json(tmp_path, input_csv, pdb_file, monkeypatch):
-    monkeypatch.setattr(pipeline, "fetch_structure", lambda acc, cache_dir: pdb_file)
-    out_dir = tmp_path / "cli_json"
-
-    with pytest.raises(SystemExit) as excinfo:
-        cli.app(["--input", str(input_csv), "--output_dir", str(out_dir), "--format", "json"])
-    assert excinfo.value.code == 0
-    assert (out_dir / "data" / "catalog.json").exists()
-
-
-def test_cli_requires_input(capsys):
-    with pytest.raises(SystemExit) as excinfo:
-        cli.app([])
-    assert excinfo.value.code != 0
-    output = capsys.readouterr()
-    assert "--input" in output.out + output.err
-
-
-def test_cli_fdr_threshold_drives_significance(tmp_path, input_csv, pdb_file, monkeypatch):
-    monkeypatch.setattr(pipeline, "fetch_structure", lambda acc, cache_dir: pdb_file)
-    out_dir = tmp_path / "fdr_output"
-
-    with pytest.raises(SystemExit) as excinfo:
+    monkeypatch.setattr(cli.preparation, "prepare_methods", fake_prepare)
+    monkeypatch.setattr(
+        cli.preparation,
+        "clean_methods",
+        lambda output_dir, methods: calls.append(("clean", output_dir, methods)) or [],
+    )
+    with pytest.raises(SystemExit, match="0"):
         cli.app(
             [
+                "prepare",
+                "DPU",
                 "--input",
-                str(input_csv),
-                "--output_dir",
-                str(out_dir),
-                "--fdr",
-                "0.25",
-                "--format",
-                "json",
+                str(tmp_path / "PTM_statistics.h5mu"),
+                "--output-dir",
+                str(tmp_path / "out"),
             ]
         )
+    with pytest.raises(SystemExit, match="0"):
+        cli.app(["prepare"])
+    with pytest.raises(SystemExit, match="0"):
+        cli.app(["clean", "CF-DPU"])
+    with pytest.raises(SystemExit, match="0"):
+        cli.app(["clean"])
+    assert calls[0][-1] == ("DPU",)
+    assert calls[1][-1] == ("DPA", "DPU", "CF-DPU")
+    assert calls[2][-1] == ("CF-DPU",)
+    assert calls[3][-1] == ("DPA", "DPU", "CF-DPU")
+
+
+def test_cli_bare_help_and_serve_requires_method(capsys):
+    with pytest.raises(SystemExit) as excinfo:
+        cli.app([])
     assert excinfo.value.code == 0
-    catalog = json.loads((out_dir / "data" / "catalog.json").read_text(encoding="utf-8"))
-    (entry,) = catalog["proteins"]
-    assert entry["sig_count"] == 3  # All three sites pass FDR <= 0.25.
+    assert "prepare" in capsys.readouterr().out
+    with pytest.raises(SystemExit) as excinfo:
+        cli.app(["serve"])
+    assert excinfo.value.code != 0

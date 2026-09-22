@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- The CLI now prepares, serves, and cleans DPA, DPU, or CF-DPU method packages from `PTM_statistics.h5mu`. With no method, `prepare` and `clean` handle all three; a bare command shows help.
+- Serving a prepared method uses static files only, including cached compressed AlphaFold models. The previous Excel/CSV CLI workflow remains accessible through the Python pipeline API during migration.
+
+- Prepared packages retain all measured sites and aligned sample evidence, including missing values, alongside method-specific effects, original site/protein fold changes, UniProt feature coordinates, and annotation status.
+
 - One browser app instead of two, laid out as rawDIAGQC's viewer is: `app.js` is the
   composition root, `lib/session.js` holds the selection state and every derivation
   the views need (contrast scope, category membership, site decoration, rows per

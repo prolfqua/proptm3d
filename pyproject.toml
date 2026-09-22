@@ -1,7 +1,7 @@
 [project]
 name = "proptm3d"
 version = "0.1.0"
-description = "Map differential PTM results onto AlphaFold 3D structures with interactive HTML and PyMOL export."
+description = "Prepare method-scoped PTM statistics, evidence, annotations, and AlphaFold structures for a browser app."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
@@ -109,9 +109,10 @@ name = "cli composes the pipeline; the pipeline composes independent leaf module
 type = "layers"
 layers = [
     "proptm3d.cli",
-    "proptm3d.pipeline",
+    "proptm3d.pipeline | proptm3d.prepare",
     "proptm3d.web_visualizer",
     "proptm3d.protein_data | proptm3d.webapp",
-    "proptm3d.data_loader | proptm3d.enrichment_loader | proptm3d.payload_io | proptm3d.pymol_exporter | proptm3d.structural_context | proptm3d.structure_fetcher",
+    "proptm3d.prepared_data | proptm3d.alphafold_cache",
+    "proptm3d.data_loader | proptm3d.enrichment_loader | proptm3d.payload_io | proptm3d.pymol_exporter | proptm3d.structural_context | proptm3d.structure_fetcher | proptm3d.uniprot_cache",
     "proptm3d.mudata_reader",
 ]

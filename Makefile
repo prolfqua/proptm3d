@@ -1,5 +1,7 @@
 VENV_BIN := .venv/bin
 DIR ?= output_3d
+METHOD ?= DPA
+INPUT ?= PTM_statistics.h5mu
 PORT ?= 8000
 
 .DEFAULT_GOAL := help
@@ -41,14 +43,11 @@ check:  ## Run every merge-blocking quality gate
 	uv lock --check
 	$(MAKE) format-check lint deps test test-web build
 
-serve:  ## Serve an output directory (DIR=output_3d PORT=8000)
-	$(VENV_BIN)/proptm3d serve $(DIR) --port $(PORT)
+serve:  ## Serve a prepared method (METHOD=DPA DIR=output_3d PORT=8000)
+	$(VENV_BIN)/proptm3d serve $(METHOD) --output-dir $(DIR) --port $(PORT)
 
-example:  ## Run the pipeline on the bundled example dataset (with enrichment) into DIR
-	$(VENV_BIN)/proptm3d --input examples/PTM_no_ERK_vs_ERK_top20.csv --output_dir $(DIR) --max_proteins 5 \
-		--enrichment examples/enrichment/MEA_DPA_results.json \
-		examples/enrichment/KinaseLib_GSEA_DPA.json \
-		examples/enrichment/PTMSEA_DPA_results.json
+example:  ## Prepare one method from statistics MuData (INPUT=PTM_statistics.h5mu)
+	$(VENV_BIN)/proptm3d prepare $(METHOD) --input $(INPUT) --output-dir $(DIR)
 
 clean:  ## Remove generated build and quality artifacts
 	$(VENV_BIN)/python -c "import shutil; [shutil.rmtree(path, ignore_errors=True) for path in ('build', 'dist', '.pytest_cache', '.ruff_cache')]"
