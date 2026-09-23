@@ -9,8 +9,8 @@ import h5py
 import numpy as np
 import polars as pl
 
-from proptm3d.data_loader import parse_uniprot_accession
 from proptm3d.mudata_reader import _validate_stage
+from proptm3d.uniprot_accession import parse_uniprot_accession
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,7 +52,7 @@ METHOD_SPECS = {
     ),
 }
 
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "2"
 _RESULT_COLUMNS = (
     "protein_Id",
     "site",
@@ -74,6 +74,7 @@ _SITE_COLUMNS = (
     "site",
     "fasta.id",
     "gene_name",
+    "description",
     "protein_length",
     "posInProtein",
     "modAA",
@@ -335,21 +336,19 @@ def _measurements(
     )
 
 
-def read_prepared_tables(path: Path, method: str) -> PreparedTables:
-    """Read one method and aligned evidence from PTM_statistics.h5mu."""
+def read_prepared_tables(
+    path: Path, method: str, expected_stage: str = "PTM_statistics"
+) -> PreparedTables:
+    """Read one method and aligned evidence from a statistics-bearing MuData stage."""
     spec = METHOD_SPECS[method]
     with h5py.File(path, "r") as handle:
-        _validate_stage(handle, "PTM_statistics")
+        _validate_stage(handle, expected_stage)
         site_modality = handle[f"mod/{spec.modality}"]
         sites = _site_frame(site_modality)
         samples = _sample_frame(site_modality)
         site_names = sites["site"].to_list()
         site_values = _matrix_by_site(handle["mod/enriched"], site_names, samples)
-        protein_values = (
-            _protein_matrix(handle["mod/total"], sites["fasta.id"].to_list(), samples)
-            if method != "DPA"
-            else None
-        )
+        protein_values = _protein_matrix(handle["mod/total"], sites["fasta.id"].to_list(), samples)
         corrected_values = (
             _matrix_by_site(handle["mod/cf"], site_names, samples) if method == "CF-DPU" else None
         )
@@ -361,6 +360,7 @@ def read_prepared_tables(path: Path, method: str) -> PreparedTables:
     proteins = sites.group_by("protein_Id", maintain_order=True).agg(
         pl.col("accession").first(),
         pl.col("gene_name").first(),
+        pl.col("description").first(),
         pl.col("protein_length").first().cast(pl.Int64, strict=False),
         pl.col("site").n_unique().alias("detected_sites"),
         pl.col("has_measurement").sum().alias("measured_sites"),

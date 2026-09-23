@@ -48,6 +48,12 @@ def prepared_h5mu(tmp_path):
                 _text(var, "site", sites)
                 _text(var, "fasta.id", [protein] * 3)
                 _text(var, "gene_name", ["Example"] * 3)
+                description = (
+                    "CF protein OS=Mus musculus OX=10090"
+                    if modality == "cf"
+                    else "Example protein OS=Mus musculus OX=10090"
+                )
+                _text(var, "description", [description] * 3)
                 _text(var, "modAA", ["S", "T", "Y"])
                 _text(var, "SequenceWindow", ["ASAA", "AATA", "AAAY"])
                 var["posInProtein"] = [2, 4, 6]
@@ -154,6 +160,12 @@ def test_method_effects_and_all_measured_sites(prepared_h5mu, method, effect):
     assert tables.sites.height == 3
     assert tables.proteins["detected_sites"].to_list() == [3]
     assert tables.proteins["measured_sites"].to_list() == [2]
+    expected_description = (
+        "CF protein OS=Mus musculus OX=10090"
+        if method == "CF-DPU"
+        else "Example protein OS=Mus musculus OX=10090"
+    )
+    assert tables.proteins["description"].to_list() == [expected_description]
     assert tables.stats["effect"][0] == effect
     assert tables.stats["original_site_fc"][0] == 1.0
     assert tables.stats["protein_fc"][0] == 0.4
@@ -161,8 +173,12 @@ def test_method_effects_and_all_measured_sites(prepared_h5mu, method, effect):
 
 
 def test_sample_alignment_and_corrected_evidence(prepared_h5mu):
+    dpa = read_prepared_tables(prepared_h5mu, "DPA")
     dpu = read_prepared_tables(prepared_h5mu, "DPU")
     cf = read_prepared_tables(prepared_h5mu, "CF-DPU")
+    dpa_first = dpa.measurements.filter(dpa.measurements["site"].eq("P12345_S2~ASAA"))
+    assert dpa_first["sample"].to_list() == ["a", "b"]
+    assert dpa_first["protein_abundance"].to_list() == [30.0, 40.0]
     first = dpu.measurements.filter(dpu.measurements["site"].eq("P12345_S2~ASAA"))
     assert first["sample"].to_list() == ["a", "b"]
     assert first["condition"].to_list() == ["control", "treatment"]
@@ -188,6 +204,7 @@ def test_site_catalog_keeps_contaminants_but_excludes_reverse_decoys(tmp_path):
             ],
         )
         _text(var, "gene_name", ["Example", "CASA2", "NA"])
+        _text(var, "description", ["Example protein", "Casein alpha S2", "NA"])
         _text(var, "modAA", ["S", "S", "S"])
         _text(var, "SequenceWindow", ["ASAA"] * 3)
         var["posInProtein"] = [2, 2, 2]

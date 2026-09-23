@@ -1,19 +1,22 @@
 [project]
 name = "proptm3d"
 version = "0.1.0"
-description = "Prepare method-scoped PTM statistics, evidence, annotations, and AlphaFold structures for a browser app."
+description = "Prepare method-scoped PTM statistics, GSEA, annotations, and AlphaFold structures for a browser app."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
+license-files = ["THIRD_PARTY_NOTICES.md"]
 authors = [
     { name = "Functional Genomics Center Zurich" },
 ]
 
 dependencies = [
+    "biopython>=1.85,<2",
     "cbor2>=5.6,<6",
     "cyclopts",
     "fastexcel",
     "h5py>=3.12",
+    "ijson>=3.4,<4",
     "loguru",
     "numpy",
     "polars",
@@ -105,14 +108,20 @@ DEP002 = ["fastexcel"]
 root_package = "proptm3d"
 
 [[tool.importlinter.contracts]]
-name = "cli composes the pipeline; the pipeline composes independent leaf modules"
+name = "cli composes preparation and static serving"
 type = "layers"
 layers = [
     "proptm3d.cli",
-    "proptm3d.pipeline | proptm3d.prepare",
-    "proptm3d.web_visualizer",
-    "proptm3d.protein_data | proptm3d.webapp",
+    "proptm3d.prepare | proptm3d.webapp",
+    "proptm3d.structural_context_cache | proptm3d.web_visualizer",
+    "proptm3d.protein_data",
     "proptm3d.prepared_data | proptm3d.alphafold_cache",
-    "proptm3d.data_loader | proptm3d.enrichment_loader | proptm3d.payload_io | proptm3d.pymol_exporter | proptm3d.structural_context | proptm3d.structure_fetcher | proptm3d.uniprot_cache",
-    "proptm3d.mudata_reader",
+    "proptm3d.data_loader | proptm3d.enrichment_loader | proptm3d.gsea_data | proptm3d.payload_io | proptm3d.pymol_exporter | proptm3d.structural_context | proptm3d.structure_fetcher | proptm3d.uniprot_cache",
+    "proptm3d.mudata_reader | proptm3d.uniprot_accession",
 ]
+
+[[tool.importlinter.contracts]]
+name = "active statistics extraction does not depend on the legacy table loader"
+type = "forbidden"
+source_modules = ["proptm3d.prepared_data"]
+forbidden_modules = ["proptm3d.data_loader"]

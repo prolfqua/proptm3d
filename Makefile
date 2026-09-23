@@ -31,9 +31,10 @@ deps:  ## Validate dependency declarations
 test:  ## Run tests with branch coverage
 	$(VENV_BIN)/pytest --cov --cov-branch
 
-test-web:  ## Run the browser app's pure-module tests under Node
-	@command -v node >/dev/null || { echo "node is required for the browser tests"; exit 1; }
-	node --test "tests/web/*.test.mjs"
+test-web:  ## Type-check and test the TypeScript browser app
+	@command -v npm >/dev/null || { echo "npm is required for the browser tests"; exit 1; }
+	npm --prefix web run check
+	npm --prefix web test
 
 build:  ## Build and validate source and wheel distributions
 	uv build

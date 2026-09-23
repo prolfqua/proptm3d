@@ -1,0 +1,28 @@
+{
+  "name": "proptm3d-browser",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "check": "tsc --noEmit",
+    "build": "npm run check && vite build",
+    "test": "tsx --test tests/*.test.ts tests/*.test.mjs",
+    "deploy": "node scripts/deploy.mjs"
+  },
+  "dependencies": {
+    "3dmol": "2.5.5",
+    "hyparquet": "1.31.1",
+    "hyparquet-compressors": "1.1.2",
+    "lit": "3.3.3",
+    "plotly.js-cartesian-dist-min": "4.1.1",
+    "plotly.js-gl2d-dist-min": "4.1.1",
+    "tabulator-tables": "6.5.3"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.6",
+    "@types/tabulator-tables": "6.3.6",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "vite": "8.3.0"
+  }
+}

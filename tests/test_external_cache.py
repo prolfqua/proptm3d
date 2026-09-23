@@ -1,10 +1,11 @@
-"""Whole-proteome annotations and AlphaFold archive acquisition stay in prepare."""
+"""Tests for reusable UniProt and AlphaFold external-data caches."""
 
 import gzip
 import io
+import json
 import tarfile
 from concurrent.futures import ThreadPoolExecutor
-from threading import Event
+from threading import Event, Lock
 
 import polars as pl
 import pytest
@@ -20,6 +21,8 @@ class Response:
         self.headers = headers or {}
         self.links = links or {}
         self.content = content
+        self.raw = type("RawResponse", (io.BytesIO,), {})(content)
+        self.raw.decode_content = True
 
     def json(self):
         return self.body
@@ -201,6 +204,73 @@ def test_alphafold_archive_fragments_foreign_model_and_cache_reuse(tmp_path):
     assert session.calls == []
 
 
+def test_alphafold_archive_can_extract_every_model_without_accession_selection(tmp_path):
+    proteome = uniprot_cache.Proteome("UP000000589", 10090, "10090_MOUSE")
+    archive_url = alphafold_cache.ARCHIVE_ROOT + "/" + alphafold_cache.archive_name(proteome)
+    session = Session(
+        {
+            archive_url: Response(content=_tar_bytes()),
+            alphafold_cache.PREDICTION_ROOT + "/P12345": Response(
+                [
+                    {"modelEntityId": "AF-P12345-F1", "uniprotStart": 1},
+                    {"modelEntityId": "AF-P12345-F2", "uniprotStart": 201},
+                ]
+            ),
+        }
+    )
+
+    models = alphafold_cache.cache_archive_models(proteome, tmp_path, session)
+
+    assert set(models) == {"P12345", "Q12345"}
+    assert sum(len(entries) for entries in models.values()) == 3
+    assert models["P12345"][1]["start"] == 201
+
+
+def test_alphafold_clean_removes_only_selected_proteome_cache(tmp_path):
+    proteome = uniprot_cache.Proteome("UP000000589", 10090, "10090_MOUSE")
+    archive_url = alphafold_cache.ARCHIVE_ROOT + "/" + alphafold_cache.archive_name(proteome)
+    session = Session(
+        {
+            archive_url: Response(content=_tar_bytes()),
+            alphafold_cache.PREDICTION_ROOT + "/P12345": Response(
+                [
+                    {"modelEntityId": "AF-P12345-F1", "uniprotStart": 1},
+                    {"modelEntityId": "AF-P12345-F2", "uniprotStart": 201},
+                ]
+            ),
+        }
+    )
+    models = alphafold_cache.cache_archive_models(proteome, tmp_path, session)
+    alphafold_root = tmp_path / "alphafold"
+    for entries in models.values():
+        for model in entries:
+            pae = (
+                alphafold_root
+                / "pae"
+                / (f"{model['model_id']}-predicted_aligned_error_v{model['version']}.json.gz")
+            )
+            pae.parent.mkdir(parents=True, exist_ok=True)
+            pae.write_bytes(b"pae")
+            context = (
+                alphafold_root
+                / "structural_context"
+                / "bludau-v1"
+                / f"{model['model_id']}-model_v{model['version']}.parquet"
+            )
+            context.parent.mkdir(parents=True, exist_ok=True)
+            context.write_bytes(b"context")
+    unrelated = alphafold_root / "structures" / "AF-X99999-F1-model_v6.cif.gz"
+    unrelated.write_bytes(b"keep")
+
+    summary = alphafold_cache.clean_proteome_cache(proteome, tmp_path)
+
+    assert summary["models"] == 3
+    assert unrelated.read_bytes() == b"keep"
+    assert not alphafold_cache.archive_catalog_path(tmp_path, proteome).exists()
+    assert not any((alphafold_root / "pae").glob("AF-P12345-*.json.gz"))
+    assert not any((alphafold_root / "structural_context").glob("*/AF-P12345-*.parquet"))
+
+
 def test_alphafold_missing_prediction_is_empty(tmp_path):
     session = Session({alphafold_cache.PREDICTION_ROOT + "/X12345": Response(status=404)})
     metadata_dir = tmp_path / "metadata"
@@ -210,6 +280,79 @@ def test_alphafold_missing_prediction_is_empty(tmp_path):
     assert alphafold_cache._individual_models({"X12345"}, tmp_path, metadata_dir, Session({})) == {
         "X12345": []
     }
+
+
+def test_alphafold_pae_download_and_cache_reuse(tmp_path):
+    pae_url = "https://example.org/AF-P12345-F1-pae.json"
+    payload = gzip.compress(json.dumps([{"predicted_aligned_error": [[0, 1], [2, 0]]}]).encode())
+    models = {
+        "P12345": [
+            {
+                "file": "AF-P12345-F1-model_v6.cif.gz",
+                "model_id": "AF-P12345-F1",
+                "fragment": 1,
+                "version": 6,
+                "pae_url": pae_url,
+            }
+        ]
+    }
+    response = Response(content=payload, headers={"Content-Encoding": "gzip"})
+    session = Session({pae_url: response})
+
+    cached = alphafold_cache.cache_pae_files(models, tmp_path, session)
+
+    path = cached["AF-P12345-F1-model_v6.cif.gz"]
+    assert path.read_bytes() == payload
+    assert response.raw.decode_content is False
+    assert json.loads(gzip.decompress(path.read_bytes()))[0]["predicted_aligned_error"][1] == [
+        2,
+        0,
+    ]
+    session.calls.clear()
+    assert alphafold_cache.cache_pae_files(models, tmp_path, session) == cached
+    assert session.calls == []
+
+
+def test_alphafold_pae_downloads_are_parallel_without_injected_session(tmp_path, monkeypatch):
+    models = {
+        accession: [
+            {
+                "file": f"AF-{accession}-F1-model_v6.cif.gz",
+                "model_id": f"AF-{accession}-F1",
+                "fragment": 1,
+                "version": 6,
+                "pae_url": f"https://example.org/{accession}.json",
+            }
+        ]
+        for accession in ("P12345", "Q12345", "R12345")
+    }
+    lock = Lock()
+    release = Event()
+    active = 0
+    peak = 0
+
+    def cache(model, cache_dir, session):
+        nonlocal active, peak
+        with lock:
+            active += 1
+            peak = max(peak, active)
+            if active >= 2:
+                release.set()
+        assert release.wait(5)
+        with lock:
+            active -= 1
+        return cache_dir / f"{model['model_id']}.json.gz"
+
+    monkeypatch.setattr(alphafold_cache, "_cache_pae_file", cache)
+
+    cached = alphafold_cache.cache_pae_files(models, tmp_path)
+
+    assert set(cached) == {
+        "AF-P12345-F1-model_v6.cif.gz",
+        "AF-Q12345-F1-model_v6.cif.gz",
+        "AF-R12345-F1-model_v6.cif.gz",
+    }
+    assert peak > 1
 
 
 def test_alphafold_download_resumes_partial_file(tmp_path):
