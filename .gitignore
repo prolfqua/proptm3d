@@ -3,6 +3,7 @@ PTM_o42260_PTManalysis/
 output_3d/
 
 # Python
+docs/_build/
 .venv/
 .pytest_cache/
 .ruff_cache/

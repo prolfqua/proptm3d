@@ -97,7 +97,9 @@ Every method also carries original site and total-protein fold changes for the p
 ## Development
 
 ```bash
+make sync
 make check
+make docs
 ```
 
-Tests stub external downloads. The active Python API and CLI prepare method-scoped packages from h5mu inputs; the retired Excel/CSV browser pipeline is no longer part of the package.
+`make docs` builds the [Python documentation](docs/index.md) to `docs/_build/html/index.html` and treats warnings as errors. `make check` is the CI gate: Python formatting, imports, dependencies, tests, package build, browser checks and build, and documentation build. CI runs it on Python 3.13 and runs the Python tests separately on the supported minimum, Python 3.11. Tests stub external downloads. The active Python API and CLI prepare method-scoped packages from h5mu inputs; the retired Excel/CSV browser pipeline is no longer part of the package.

@@ -13,13 +13,14 @@ Precedence: the closest `AGENTS.md` wins for its own directory.
 ## Commands
 
 ```bash
-make sync          # uv sync --frozen --group dev
+make sync          # uv sync --frozen --group dev --group docs
 make test          # pytest with branch coverage, 90% gate
 make test-web      # Type-check and test the TypeScript browser app
 make format        # ruff format and autofix
 make lint          # ruff check and import-linter
 make deps          # deptry
 make build         # uv build and twine check
+make docs          # strict Sphinx HTML build in docs/_build/html
 make check         # all merge gates
 
 uv run proptm3d cache structures MOUSE
@@ -66,5 +67,6 @@ The import-linter contract in `pyproject.toml` enforces the main direction: CLI 
 - `clean` and replacement may modify only method directories carrying a `proptm3d-prepared-method` manifest. A failed preparation must leave a previous method package usable.
 - Stub external network calls in tests. `make check` is the complete quality gate. Declare dependencies in `pyproject.toml` and keep `uv.lock` current.
 - Add user-visible Python changes under the current version heading in `CHANGELOG.md`.
+- Keep the Python documentation in [docs/](docs/) and its warning-free build in `make check`; CI runs that gate on Python 3.13 plus Python tests on 3.11.
 
 The older JavaScript app and browser tests are archived in [legacy/legacy-browser-2026-09-23.zip](legacy/legacy-browser-2026-09-23.zip) and are not active development sources. The TypeScript app consumes the Parquet tables described in `data/run.json`; do not reopen or port the archived frontend while developing it. Python preparation and static serving are separate from routine browser UI work; change preparation when the user changes the prepared-data contract.

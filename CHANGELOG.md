@@ -6,6 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Python installation, preparation, data-format, and API documentation now builds as a local Sphinx site and is checked in CI alongside the Python and TypeScript quality gates.
 - Protein detail now clears the previous protein and site while a new protein loads; a failed load shows its error instead of leaving stale abundance available.
 - The obsolete Excel/CSV browser pipeline and its static-app installer are retired. Method-scoped h5mu preparation and the deployed TypeScript app are the supported path.
 - Protein detail's 3D phosphosite markers no longer draw dark wireframe shells, so their effect colors remain clear when zoomed out; marker selection still uses the colored spheres.

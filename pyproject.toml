@@ -40,6 +40,11 @@ dev = [
     "twine>=6",
     "xlsxwriter>=3",
 ]
+docs = [
+    "myst-parser>=4,<5",
+    "sphinx>=8.2,<10",
+    "sphinx-book-theme>=1.1,<2",
+]
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-config --strict-markers"
