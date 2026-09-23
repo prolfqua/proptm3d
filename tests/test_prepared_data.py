@@ -11,20 +11,17 @@ def _text(group, name, values):
     group.create_dataset(name, data=np.asarray(values, dtype=h5py.string_dtype()))
 
 
-def _record(parent, name, columns):
-    item = parent.create_group(name)
-    column_group = item.create_group("columns")
-    _text(column_group, "names", list(columns))
-    for index, (_column_name, values) in enumerate(columns.items(), 1):
-        column = column_group.create_group(f"items/item_{index:06d}")
-        text = any(isinstance(value, str) for value in values if value is not None)
-        column["storage"] = "character" if text else "double"
-        if text:
-            _text(column, "values", [value or "" for value in values])
-            column["missing"] = [value is None for value in values]
-        else:
-            column["values"] = [value if value is not None else np.nan for value in values]
-    return item
+def _result_method(handle, modality, method, results):
+    namespace = handle.require_group(f"mod/{modality}/uns/prophosqua")
+    keys = [f"{method}__{contrast}" for contrast, *_ in results]
+    _text(namespace.require_group("result_keys"), method, keys)
+    for key, (_, numeric, present, annotations) in zip(keys, results, strict=True):
+        _text(namespace.require_group("varm_columns"), key, list(numeric))
+        handle[f"mod/{modality}/varm/{key}"] = np.column_stack(list(numeric.values()))
+        handle[f"mod/{modality}/varm/{key}__present"] = np.asarray(present, dtype=bool)[:, None]
+        group = namespace.require_group(f"varm_annotations/{key}")
+        for name, values in annotations.items():
+            _text(group, name, values)
 
 
 @pytest.fixture
@@ -60,55 +57,92 @@ def prepared_h5mu(tmp_path):
                     if modality == "enriched"
                     else [[-9.0, -7.0, np.nan], [-38.0, -36.0, np.nan]]
                 )
-        dpa_dpu = handle.create_group("mod/enriched/uns/prophosqua/dpa_dpu")
-        _text(dpa_dpu, "names", ["combined_site_prot", "combined_test_diff"])
-        common = {
-            "protein_Id": ["P12345", "P12345", "P12345"],
-            "site": [sites[0], sites[1], sites[0]],
-            "contrast": ["a_vs_b", "a_vs_b", "c_vs_d"],
-            "posInProtein": [2.0, 4.0, 2.0],
-            "modAA": ["S", "T", "S"],
-            "SequenceWindow": ["ASAA", "AATA", "ASAA"],
+        annotations = {
             "gene_name.site": ["Example"] * 3,
-            "protein_length": [7.0] * 3,
-            "diff.site": [1.0, -2.0, 0.3],
-            "diff.protein": [0.4, 0.4, -0.1],
             "estimate_type.site": ["observed", "lod_imputed", "observed"],
             "estimate_type.protein": ["observed"] * 3,
         }
-        _record(
-            dpa_dpu,
-            "items/item_000001",
-            common
-            | {
-                "FDR.site": [0.01, 0.1, 0.2],
-                "p.value.site": [0.001, 0.02, 0.05],
-                "std.error.site": [0.2, 0.3, 0.4],
-            },
+        dpa_common = {
+            "diff.site": [1.0, -2.0, np.nan],
+            "diff.protein": [0.4, 0.4, np.nan],
+        }
+        _result_method(
+            handle,
+            "enriched",
+            "dpa",
+            [
+                (
+                    "a_vs_b",
+                    dpa_common
+                    | {
+                        "FDR.site": [0.01, 0.1, np.nan],
+                        "p.value.site": [0.001, 0.02, np.nan],
+                        "std.error.site": [0.2, 0.3, np.nan],
+                    },
+                    [True, True, False],
+                    annotations,
+                ),
+                (
+                    "c_vs_d",
+                    {
+                        "diff.site": [0.3, np.nan, np.nan],
+                        "diff.protein": [-0.1, np.nan, np.nan],
+                        "FDR.site": [0.2, np.nan, np.nan],
+                        "p.value.site": [0.05, np.nan, np.nan],
+                        "std.error.site": [0.4, np.nan, np.nan],
+                    },
+                    [True, False, False],
+                    annotations,
+                ),
+            ],
         )
-        _record(
-            dpa_dpu,
-            "items/item_000002",
-            common
-            | {
-                "diff_diff": [0.6, -2.4, 0.4],
-                "FDR_I": [0.03, 0.2, 0.4],
-                "pValue_I": [0.01, 0.1, 0.2],
-                "SE_I": [0.5, 0.6, 0.7],
-            },
+        _result_method(
+            handle,
+            "enriched",
+            "dpu",
+            [
+                (
+                    "a_vs_b",
+                    dpa_common
+                    | {
+                        "diff_diff": [0.6, -2.4, np.nan],
+                        "FDR_I": [0.03, 0.2, np.nan],
+                        "pValue_I": [0.01, 0.1, np.nan],
+                        "SE_I": [0.5, 0.6, np.nan],
+                    },
+                    [True, True, False],
+                    annotations,
+                ),
+                (
+                    "c_vs_d",
+                    {
+                        "diff_diff": [0.4, np.nan, np.nan],
+                        "FDR_I": [0.4, np.nan, np.nan],
+                        "pValue_I": [0.2, np.nan, np.nan],
+                        "SE_I": [0.7, np.nan, np.nan],
+                    },
+                    [True, False, False],
+                    annotations,
+                ),
+            ],
         )
-        report = handle.create_group("mod/cf/uns/prophosqua/report_data")
-        _text(report, "names", ["results"])
-        _record(
-            report,
-            "items/item_000001",
-            {key: values[:2] for key, values in common.items()}
-            | {
-                "FDR.site": [0.05, 0.2],
-                "p.value": [0.01, 0.1],
-                "std.error": [0.3, 0.5],
-                "estimate_type": ["observed", "lod_imputed"],
-            },
+        _result_method(
+            handle,
+            "cf",
+            "correct_first",
+            [
+                (
+                    "a_vs_b",
+                    {
+                        "diff.site": [1.0, -2.0, np.nan],
+                        "FDR.site": [0.05, 0.2, np.nan],
+                        "p.value": [0.01, 0.1, np.nan],
+                        "std.error": [0.3, 0.5, np.nan],
+                    },
+                    [True, True, False],
+                    {"estimate_type": ["observed", "lod_imputed", "NA"]},
+                )
+            ],
         )
     return path
 

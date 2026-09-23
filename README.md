@@ -1,6 +1,6 @@
 # proptm3d
 
-`proptm3d` prepares phosphorylation statistics from `PTM_statistics.h5mu` for a local browser application. This is the Python preparation stage of the [no-enrichment browser plan](../TODO/proptm3d/TODO_no_enrichment_browser_app.md). The interactive browser view is still to be implemented; `serve` currently displays a preparation status page and exposes the generated files.
+`proptm3d` prepares phosphorylation statistics from `PTM_statistics.h5mu` or a PTM statistics delivery ZIP for a local browser application. This is the Python preparation stage of the [no-enrichment browser plan](../TODO/proptm3d/TODO_no_enrichment_browser_app.md). The interactive browser view is still to be implemented; `serve` currently displays a preparation status page and exposes the generated files.
 
 ## Install
 
@@ -21,9 +21,19 @@ uv run proptm3d clean              # remove all three prepared packages
 
 All commands accept `--output-dir PATH` (default `./output_3d`). `prepare` accepts `--input PATH` (default `./PTM_statistics.h5mu`). `serve` accepts `--port` (default 8000) and requires exactly one method. A bare `proptm3d` prints command help. `clean` preserves the input, the shared external-data cache, and unrecognized directories.
 
+The default `output_3d` is relative to the directory where you run the command, not to the input ZIP. `prepare` prints each method's absolute folder and its matching `serve` command. For example, `proptm3d serve DPA` serves only `output_3d/DPA` as the website root at `http://127.0.0.1:8000/`; choose DPU or CF-DPU to serve those folders instead. The current `index.html` is a preparation status page while the interactive browser view is being built.
+
+The statistics delivery ZIP can be passed directly, for example:
+
+```bash
+uv run proptm3d prepare DPA --input /path/to/PTM_HIF2a_mutant_vs_GFP_control_statistics.zip
+```
+
+`prepare` reads the archive's `PTM_statistics.h5mu` member for all selected methods and ignores `PTM_inputs.h5mu`. It extracts the statistics member temporarily and removes that copy after reading it; the delivery ZIP remains intact.
+
 In the current PTM pipeline layout, this h5mu sits beside `PTM_DPA/`, `PTM_DPU/`, and `PTM_CF_DPU/`. Those folders hold separate `intermediate_*.cbor.gz` files for downstream enrichment stages. Scenario 1 uses only the statistics h5mu; enrichment inputs belong to later browser scenarios.
 
-Preparation downloads the main organism's UniProt reference proteome and AlphaFold archive into `~/.cache/proptm3d` when absent. It currently recognizes predominantly mouse and human input from the FASTA entry names, and refuses ambiguous organism or isoform coordinates. The compressed AlphaFold proteome archives are several GiB. UniProt feature data, compressed mmCIF models, and a small number of foreign-species models are acquired during `prepare`; `serve` performs no external requests.
+Preparation infers the main organism from the `_MOUSE` or `_HUMAN` suffix of `mod/enriched/var/fasta.id` entries in the statistics h5mu, then checks the downloaded UniProt proteome's taxon ID. It refuses ambiguous organism or isoform coordinates. The UniProt reference proteome, extra accession mappings, AlphaFold archive, prediction metadata, and compressed mmCIF models are cached under `~/.cache/proptm3d` across preparations. The compressed AlphaFold proteome archive is several GiB; concurrent preparations share one archive download. `serve` performs no external requests.
 
 ## Generated package
 

@@ -4,6 +4,7 @@ import gzip
 import json
 import threading
 from urllib.request import urlopen
+from zipfile import ZipFile
 
 import cbor2
 import polars as pl
@@ -102,6 +103,29 @@ def test_prepare_all_writes_method_scoped_payloads_and_clean(
     assert cache.is_dir()
 
 
+def test_prepare_reads_statistics_member_from_delivery_zip(prepared_h5mu, external_data, tmp_path):
+    archive = tmp_path / "PTM_example_statistics.zip"
+    with ZipFile(archive, "w") as output:
+        output.writestr("PTM_example/PTM_inputs.h5mu", b"not a statistics file")
+        output.write(prepared_h5mu, "PTM_example/PTM_statistics.h5mu")
+    root = tmp_path / "output_3d"
+
+    manifests = prepare.prepare_methods(archive, root, ("DPA",), tmp_path / "cache")
+
+    assert [item["method"] for item in manifests] == ["DPA"]
+    assert prepare.is_prepared(root / "DPA", "DPA")
+    assert not list(root.glob(".statistics-*"))
+    assert archive.is_file()
+
+
+def test_prepare_zip_requires_statistics_member(tmp_path):
+    archive = tmp_path / "PTM_example_statistics.zip"
+    with ZipFile(archive, "w") as output:
+        output.writestr("PTM_example/PTM_inputs.h5mu", b"input only")
+    with pytest.raises(ValueError, match=r"Expected exactly one PTM_statistics\.h5mu"):
+        prepare.prepare_methods(archive, tmp_path / "output_3d", ("DPA",))
+
+
 def test_prepare_failure_preserves_existing_package(
     prepared_h5mu, external_data, tmp_path, monkeypatch
 ):
@@ -167,3 +191,48 @@ def test_cli_serve_checks_manifest(tmp_path, monkeypatch):
     )
     cli.serve("DPA", output_dir=tmp_path, port=3210)
     assert calls == [(tmp_path / "DPA", 3210)]
+
+
+def test_cli_serve_without_method_lists_choices(capsys):
+    with pytest.raises(SystemExit) as error:
+        cli.serve()
+    assert error.value.code == 2
+    assert capsys.readouterr().err.splitlines() == [
+        "Choose one method to serve: DPA, DPU, or CF-DPU.",
+        "For example: proptm3d serve DPA",
+    ]
+
+
+def test_cli_prepare_explains_missing_default_input(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit) as error:
+        cli.prepare()
+    captured = capsys.readouterr()
+    assert error.value.code == 2
+    assert str(tmp_path / "PTM_statistics.h5mu") in captured.err
+    assert "Usage: proptm3d prepare" in captured.out
+    assert "--input" in captured.out
+
+
+def test_cli_prepare_prints_output_folder_and_serve_command(tmp_path, monkeypatch, capsys):
+    source = tmp_path / "statistics.zip"
+    source.touch()
+    output = tmp_path / "prepared data"
+    monkeypatch.setattr(
+        cli.preparation,
+        "prepare_methods",
+        lambda *args: [
+            {
+                "method": "DPA",
+                "counts": {"measured_sites": 3, "proteins": 2, "with_structures": 2},
+            }
+        ],
+    )
+
+    cli.prepare("DPA", input_file=source, output_dir=output)
+
+    assert capsys.readouterr().out.splitlines() == [
+        "Prepared DPA: 3 measured sites, 2 proteins, 2 structures",
+        f"  Folder: {output / 'DPA'}",
+        f"  Serve: proptm3d serve DPA --output-dir '{output}'",
+    ]

@@ -6,7 +6,10 @@ import json
 import re
 import tempfile
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
+from fcntl import LOCK_EX, LOCK_UN, flock
 from pathlib import Path
 
 import polars as pl
@@ -221,6 +224,54 @@ def _map_extra(
     )
 
 
+def _cached_extra(
+    session: requests.Session, accessions: set[str], cache_dir: Path
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    if not accessions:
+        return pl.DataFrame(schema=PROTEIN_SCHEMA), pl.DataFrame(schema=FEATURE_SCHEMA)
+    extra_dir = cache_dir / "extras"
+    if _complete_cache(extra_dir):
+        queried = set(json.loads((extra_dir / "manifest.json").read_text())["queried_accessions"])
+        proteins = pl.read_parquet(extra_dir / "proteins.parquet")
+        features = pl.read_parquet(extra_dir / "features.parquet")
+    else:
+        queried = set()
+        proteins = pl.DataFrame(schema=PROTEIN_SCHEMA)
+        features = pl.DataFrame(schema=FEATURE_SCHEMA)
+    missing = accessions - queried
+    if missing:
+        logger.info("Resolving {} uncached UniProt accessions", len(missing))
+        new_proteins, new_features = _map_extra(session, missing)
+        proteins = pl.concat((proteins, new_proteins), how="vertical").unique("accession")
+        features = pl.concat((features, new_features), how="vertical").unique()
+        queried.update(missing)
+        with tempfile.TemporaryDirectory(prefix=".uniprot-extras-", dir=cache_dir) as temporary:
+            staged = Path(temporary)
+            proteins.write_parquet(staged / "proteins.parquet")
+            features.write_parquet(staged / "features.parquet")
+            (staged / "manifest.json").write_text(
+                json.dumps({"queried_accessions": sorted(queried)})
+            )
+            extra_dir.mkdir(exist_ok=True)
+            for name in ("proteins.parquet", "features.parquet", "manifest.json"):
+                (staged / name).replace(extra_dir / name)
+    return proteins.filter(pl.col("accession").is_in(accessions)), features.filter(
+        pl.col("accession").is_in(accessions)
+    )
+
+
+@contextmanager
+def _proteome_lock(cache_dir: Path) -> Iterator[None]:
+    cache_dir.parent.mkdir(parents=True, exist_ok=True)
+    lock = cache_dir.with_suffix(".lock")
+    with lock.open("w") as handle:
+        flock(handle, LOCK_EX)
+        try:
+            yield
+        finally:
+            flock(handle, LOCK_UN)
+
+
 def load_annotations(
     fasta_ids: list[str],
     accessions: set[str],
@@ -230,12 +281,15 @@ def load_annotations(
     """Load a whole reference proteome and resolve measured foreign proteins."""
     proteome = infer_proteome(fasta_ids)
     cache_dir = cache_root / "uniprot" / proteome.id
-    with requests.Session() if session is None else session as client:
+    with (
+        requests.Session() if session is None else session as client,
+        _proteome_lock(cache_dir),
+    ):
         release = _download_proteome(proteome, cache_dir, client)
         proteins = pl.read_parquet(cache_dir / "proteins.parquet")
         features = pl.read_parquet(cache_dir / "features.parquet")
         primary = set(proteins["accession"].to_list())
-        extras, extra_features = _map_extra(client, accessions - primary)
+        extras, extra_features = _cached_extra(client, accessions - primary, cache_dir)
     proteins = pl.concat((proteins, extras), how="vertical").unique("accession")
     features = pl.concat((features, extra_features), how="vertical")
     return AnnotationTables(proteins, features, proteome, release, primary)

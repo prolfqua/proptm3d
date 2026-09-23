@@ -6,8 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- `prepare --input` accepts a PTM statistics delivery ZIP and reads its current per-contrast result matrices without manual extraction; a missing input now displays the `prepare` help and exits without a traceback.
+- Successful `prepare` output now prints each method's absolute folder and the command that serves it.
+- Bare `serve` now lists the required method choices instead of showing a `--method` parsing error.
 - The CLI now prepares, serves, and cleans DPA, DPU, or CF-DPU method packages from `PTM_statistics.h5mu`. With no method, `prepare` and `clean` handle all three; a bare command shows help.
 - Serving a prepared method uses static files only, including cached compressed AlphaFold models. The previous Excel/CSV CLI workflow remains accessible through the Python pipeline API during migration.
+- Interrupted multi-gigabyte AlphaFold archive downloads now retain a partial file and resume with HTTP Range requests.
+- UniProt accession mappings and AlphaFold prediction metadata are cached across preparations; concurrent preparations share the archive download, and oversized or short downloads are retried.
 
 - Prepared packages retain all measured sites and aligned sample evidence, including missing values, alongside method-specific effects, original site/protein fold changes, UniProt feature coordinates, and annotation status.
 

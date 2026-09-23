@@ -150,6 +150,8 @@ def test_run_pipeline_with_enrichment(tmp_path, input_csv, pdb_file, monkeypatch
 
 def test_cli_prepare_and_clean_select_methods(tmp_path, monkeypatch):
     calls = []
+    (tmp_path / "PTM_statistics.h5mu").touch()
+    monkeypatch.chdir(tmp_path)
 
     def fake_prepare(input_file, output_dir, methods):
         calls.append(("prepare", input_file, output_dir, methods))
@@ -183,6 +185,7 @@ def test_cli_prepare_and_clean_select_methods(tmp_path, monkeypatch):
         cli.app(["clean"])
     assert calls[0][-1] == ("DPU",)
     assert calls[1][-1] == ("DPA", "DPU", "CF-DPU")
+    assert str(calls[1][1]) == "PTM_statistics.h5mu"
     assert calls[2][-1] == ("CF-DPU",)
     assert calls[3][-1] == ("DPA", "DPU", "CF-DPU")
 

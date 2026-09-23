@@ -8,6 +8,10 @@ import re
 import shutil
 import tarfile
 import tempfile
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from fcntl import LOCK_EX, LOCK_UN, flock
 from pathlib import Path
 
 import requests
@@ -29,56 +33,100 @@ def archive_name(proteome: Proteome) -> str:
 def _download(url: str, target: Path, session: requests.Session) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     logger.info("Downloading AlphaFold archive or model: {}", url)
-    with tempfile.NamedTemporaryFile(
-        prefix=".download-", dir=target.parent, delete=False
-    ) as temporary:
-        staged = Path(temporary.name)
-    try:
-        with session.get(url, stream=True, timeout=(30, 120)) as response:
-            response.raise_for_status()
-            with staged.open("wb") as output:
-                downloaded = 0
-                next_report = 100 * 1024 * 1024
-                for block in response.iter_content(chunk_size=1024 * 1024):
-                    output.write(block)
-                    downloaded += len(block)
-                    if downloaded >= next_report:
-                        logger.info("AlphaFold download: {:.1f} GiB", downloaded / 1024**3)
-                        next_report += 100 * 1024 * 1024
-        if not staged.stat().st_size:
-            msg = f"Empty AlphaFold download: {url}"
-            raise ValueError(msg)
-        staged.replace(target)
-    finally:
-        staged.unlink(missing_ok=True)
+    staged = target.with_name(f"{target.name}.part")
+    attempt = 0
+    while True:
+        downloaded = staged.stat().st_size if staged.exists() else 0
+        headers = {"Range": f"bytes={downloaded}-"} if downloaded else {}
+        try:
+            with session.get(url, headers=headers, stream=True, timeout=(30, 120)) as response:
+                if response.status_code == 416 and downloaded:
+                    logger.warning("Discarding oversized AlphaFold partial download: {}", staged)
+                    staged.unlink()
+                    continue
+                response.raise_for_status()
+                mode = "ab" if downloaded and response.status_code == 206 else "wb"
+                if mode == "wb":
+                    downloaded = 0
+                expected = response.headers.get("Content-Length")
+                expected = downloaded + int(expected) if expected is not None else None
+                next_report = ((downloaded // (100 * 1024 * 1024)) + 1) * 100 * 1024 * 1024
+                with staged.open(mode) as output:
+                    for block in response.iter_content(chunk_size=1024 * 1024):
+                        output.write(block)
+                        downloaded += len(block)
+                        if downloaded >= next_report:
+                            logger.info("AlphaFold download: {:.1f} GiB", downloaded / 1024**3)
+                            next_report += 100 * 1024 * 1024
+                if expected is not None and downloaded != expected:
+                    msg = f"Incomplete AlphaFold download: {downloaded} of {expected} bytes"
+                    raise requests.ConnectionError(msg)
+            break
+        except requests.RequestException:
+            attempt += 1
+            if attempt == 3:
+                raise
+            logger.warning("AlphaFold download interrupted; resuming {}", staged)
+            time.sleep(2 ** (attempt - 1))
+    if not staged.stat().st_size:
+        msg = f"Empty AlphaFold download: {url}"
+        raise ValueError(msg)
+    staged.replace(target)
+
+
+@contextmanager
+def _archive_lock(archive: Path) -> Iterator[None]:
+    lock = archive.with_suffix(".lock")
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    with lock.open("w") as handle:
+        flock(handle, LOCK_EX)
+        try:
+            yield
+        finally:
+            flock(handle, LOCK_UN)
 
 
 def _archive(cache_root: Path, proteome: Proteome, session: requests.Session) -> Path:
     archive = cache_root / "alphafold" / archive_name(proteome)
     marker = archive.with_suffix(".complete.json")
-    if archive.is_file() and marker.is_file():
-        metadata = json.loads(marker.read_text())
-        if metadata["bytes"] == archive.stat().st_size:
-            logger.info("Reusing AlphaFold archive at {}", archive)
-            return archive
-    _download(f"{ARCHIVE_ROOT}/{archive.name}", archive, session)
-    if not tarfile.is_tarfile(archive):
-        msg = f"AlphaFold download is not a tar archive: {archive}"
-        raise ValueError(msg)
-    marker.write_text(json.dumps({"archive": archive.name, "bytes": archive.stat().st_size}))
+    with _archive_lock(archive):
+        if archive.is_file() and marker.is_file():
+            metadata = json.loads(marker.read_text())
+            if metadata["bytes"] == archive.stat().st_size:
+                logger.info("Reusing AlphaFold archive at {}", archive)
+                return archive
+        _download(f"{ARCHIVE_ROOT}/{archive.name}", archive, session)
+        if not tarfile.is_tarfile(archive):
+            msg = f"AlphaFold download is not a tar archive: {archive}"
+            raise ValueError(msg)
+        marker.write_text(json.dumps({"archive": archive.name, "bytes": archive.stat().st_size}))
     return archive
 
 
-def _prediction_metadata(session: requests.Session, accession: str) -> list[dict]:
+def _prediction_metadata(session: requests.Session, accession: str, cache_dir: Path) -> list[dict]:
+    cached = cache_dir / f"{accession}.json"
+    if cached.is_file():
+        return json.loads(cached.read_text())
     response = session.get(f"{PREDICTION_ROOT}/{accession}", timeout=120)
     if response.status_code == 404:
-        return []
-    response.raise_for_status()
-    return response.json()
+        entries = []
+    else:
+        response.raise_for_status()
+        entries = response.json()
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(mode="w", dir=cache_dir, delete=False) as temporary:
+        staged = Path(temporary.name)
+        json.dump(entries, temporary)
+    staged.replace(cached)
+    return entries
 
 
 def _extract_archive(
-    archive: Path, accessions: set[str], models: Path, session: requests.Session
+    archive: Path,
+    accessions: set[str],
+    models: Path,
+    metadata_dir: Path,
+    session: requests.Session,
 ) -> dict[str, list[dict]]:
     results: dict[str, list[dict]] = {accession: [] for accession in accessions}
     with tarfile.open(archive, "r:") as bundle:
@@ -114,7 +162,7 @@ def _extract_archive(
     )
     for accession, fragments in results.items():
         if len(fragments) > 1:
-            metadata = _prediction_metadata(session, accession)
+            metadata = _prediction_metadata(session, accession, metadata_dir)
             by_fragment = {
                 entry.get("modelEntityId", entry.get("entryId")): entry for entry in metadata
             }
@@ -129,12 +177,12 @@ def _extract_archive(
 
 
 def _individual_models(
-    accessions: set[str], models: Path, session: requests.Session
+    accessions: set[str], models: Path, metadata_dir: Path, session: requests.Session
 ) -> dict[str, list[dict]]:
     results: dict[str, list[dict]] = {}
     for accession in sorted(accessions):
         fragments = []
-        for entry in _prediction_metadata(session, accession):
+        for entry in _prediction_metadata(session, accession, metadata_dir):
             fragment = entry.get("modelEntityId", entry.get("entryId", ""))
             match = re.fullmatch(rf"AF-{re.escape(accession)}-F(\d+)", fragment)
             if not match:
@@ -171,9 +219,10 @@ def cache_models(
 ) -> dict[str, list[dict]]:
     """Extract measured archive entries and download foreign models during prepare."""
     models = cache_root / "alphafold" / "structures"
+    metadata_dir = cache_root / "alphafold" / "prediction_metadata"
     models.mkdir(parents=True, exist_ok=True)
     with requests.Session() if session is None else session as client:
         archive = _archive(cache_root, proteome, client)
-        in_archive = _extract_archive(archive, accessions & primary, models, client)
-        foreign = _individual_models(accessions - primary, models, client)
+        in_archive = _extract_archive(archive, accessions & primary, models, metadata_dir, client)
+        foreign = _individual_models(accessions - primary, models, metadata_dir, client)
     return in_archive | foreign

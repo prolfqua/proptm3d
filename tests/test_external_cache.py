@@ -3,9 +3,12 @@
 import gzip
 import io
 import tarfile
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 
 import polars as pl
 import pytest
+import requests
 
 from proptm3d import alphafold_cache, uniprot_cache
 
@@ -110,9 +113,10 @@ def test_uniprot_pages_extra_mapping_and_cache_reuse(tmp_path):
     assert pl.read_parquet(tmp_path / "uniprot" / "UP000000589" / "proteins.parquet").height == 2
     cached_session = Session({})
     cached = uniprot_cache.load_annotations(
-        ["sp|P12345|A_MOUSE"], {"P12345"}, tmp_path, cached_session
+        ["sp|P12345|A_MOUSE"], {"P12345", "X12345"}, tmp_path, cached_session
     )
     assert cached.release == "2026_03"
+    assert "X12345" in cached.proteins["accession"].to_list()
     assert cached_session.calls == []
 
 
@@ -189,8 +193,8 @@ def test_alphafold_archive_fragments_foreign_model_and_cache_reuse(tmp_path):
     session.calls.clear()
     alphafold_cache.cache_models(
         proteome,
-        {"Q12345"},
-        {"Q12345"},
+        {"P12345", "Q12345", "X12345"},
+        {"P12345", "Q12345"},
         tmp_path,
         session,
     )
@@ -199,4 +203,101 @@ def test_alphafold_archive_fragments_foreign_model_and_cache_reuse(tmp_path):
 
 def test_alphafold_missing_prediction_is_empty(tmp_path):
     session = Session({alphafold_cache.PREDICTION_ROOT + "/X12345": Response(status=404)})
-    assert alphafold_cache._individual_models({"X12345"}, tmp_path, session) == {"X12345": []}
+    metadata_dir = tmp_path / "metadata"
+    assert alphafold_cache._individual_models({"X12345"}, tmp_path, metadata_dir, session) == {
+        "X12345": []
+    }
+    assert alphafold_cache._individual_models({"X12345"}, tmp_path, metadata_dir, Session({})) == {
+        "X12345": []
+    }
+
+
+def test_alphafold_download_resumes_partial_file(tmp_path):
+    target = tmp_path / "proteome.tar"
+    partial = tmp_path / "proteome.tar.part"
+    partial.write_bytes(b"first-")
+    session = Session({"https://example.org/proteome.tar": Response(status=206, content=b"second")})
+    alphafold_cache._download("https://example.org/proteome.tar", target, session)
+    assert target.read_bytes() == b"first-second"
+    assert not partial.exists()
+
+
+def test_alphafold_download_retries_after_interruption(tmp_path, monkeypatch):
+    class Interrupted(Response):
+        def iter_content(self, chunk_size):
+            yield b"first-"
+            raise requests.ConnectionError("connection dropped")
+
+    class RetrySession:
+        def __init__(self):
+            self.responses = [
+                Interrupted(content=b"unused"),
+                Response(status=206, content=b"second"),
+            ]
+
+        def get(self, url, **kwargs):
+            return self.responses.pop(0)
+
+    monkeypatch.setattr(alphafold_cache.time, "sleep", lambda delay: None)
+    target = tmp_path / "proteome.tar"
+    alphafold_cache._download("https://example.org/proteome.tar", target, RetrySession())
+    assert target.read_bytes() == b"first-second"
+
+
+def test_alphafold_download_discards_oversized_partial(tmp_path):
+    class RetrySession:
+        def __init__(self):
+            self.responses = [Response(status=416), Response(content=b"complete")]
+            self.ranges = []
+
+        def get(self, url, **kwargs):
+            self.ranges.append(kwargs["headers"])
+            return self.responses.pop(0)
+
+    target = tmp_path / "proteome.tar"
+    target.with_name("proteome.tar.part").write_bytes(b"oversized-corrupt-partial")
+    session = RetrySession()
+    alphafold_cache._download("https://example.org/proteome.tar", target, session)
+    assert target.read_bytes() == b"complete"
+    assert session.ranges == [{"Range": "bytes=25-"}, {}]
+
+
+def test_alphafold_download_resumes_after_short_response(tmp_path, monkeypatch):
+    class RetrySession:
+        def __init__(self):
+            self.responses = [
+                Response(content=b"first-", headers={"Content-Length": "12"}),
+                Response(status=206, content=b"second", headers={"Content-Length": "6"}),
+            ]
+
+        def get(self, url, **kwargs):
+            return self.responses.pop(0)
+
+    monkeypatch.setattr(alphafold_cache.time, "sleep", lambda delay: None)
+    target = tmp_path / "proteome.tar"
+    alphafold_cache._download("https://example.org/proteome.tar", target, RetrySession())
+    assert target.read_bytes() == b"first-second"
+
+
+def test_alphafold_archive_download_is_shared_between_preparations(tmp_path):
+    proteome = uniprot_cache.Proteome("UP000000589", 10090, "10090_MOUSE")
+    archive_url = alphafold_cache.ARCHIVE_ROOT + "/" + alphafold_cache.archive_name(proteome)
+    entered = Event()
+    release = Event()
+
+    class SlowSession(Session):
+        def get(self, url, **kwargs):
+            entered.set()
+            assert release.wait(5)
+            return super().get(url, **kwargs)
+
+    first_session = SlowSession({archive_url: Response(content=_tar_bytes())})
+    second_session = Session({})
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(alphafold_cache._archive, tmp_path, proteome, first_session)
+        assert entered.wait(5)
+        second = pool.submit(alphafold_cache._archive, tmp_path, proteome, second_session)
+        assert not second.done()
+        release.set()
+        assert first.result(timeout=5) == second.result(timeout=5)
+    assert second_session.calls == []

@@ -10,7 +10,7 @@ import numpy as np
 import polars as pl
 
 from proptm3d.data_loader import parse_uniprot_accession
-from proptm3d.mudata_reader import _column_values, _record_item, _validate_stage
+from proptm3d.mudata_reader import _validate_stage
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,8 +18,7 @@ class MethodSpec:
     """Paths and result columns for one public analysis method."""
 
     modality: str
-    record: str
-    table: str
+    result_method: str
     effect: str
     fdr: str
     p_value: str
@@ -29,8 +28,7 @@ class MethodSpec:
 METHOD_SPECS = {
     "DPA": MethodSpec(
         "enriched",
-        "dpa_dpu",
-        "combined_site_prot",
+        "dpa",
         "diff.site",
         "FDR.site",
         "p.value.site",
@@ -38,8 +36,7 @@ METHOD_SPECS = {
     ),
     "DPU": MethodSpec(
         "enriched",
-        "dpa_dpu",
-        "combined_test_diff",
+        "dpu",
         "diff_diff",
         "FDR_I",
         "pValue_I",
@@ -47,8 +44,7 @@ METHOD_SPECS = {
     ),
     "CF-DPU": MethodSpec(
         "cf",
-        "report_data",
-        "results",
+        "correct_first",
         "diff.site",
         "FDR.site",
         "p.value",
@@ -102,24 +98,55 @@ def _strings(dataset: h5py.Dataset) -> list[str]:
     return np.atleast_1d(dataset.asstr()[()]).tolist()
 
 
-def _record_frame(
+def _result_frame(
     handle: h5py.File,
     modality: str,
-    record: str,
-    table: str,
+    result_method: str,
     desired: tuple[str, ...],
 ) -> pl.DataFrame:
-    source = handle[f"mod/{modality}/uns/prophosqua/{record}"]
-    frame = _record_item(source, table)
-    columns = frame["columns"]
-    available = set(_strings(columns["names"]))
+    source = handle[f"mod/{modality}"]
+    namespace = source["uns/prophosqua"]
+    keys = _strings(namespace[f"result_keys/{result_method}"])
+    if not keys:
+        msg = f"No {result_method} result keys"
+        raise ValueError(msg)
     required = {"protein_Id", "site", "contrast"}
-    missing = required - available
-    if missing:
-        message = f"{table} lacks required columns: {sorted(missing)}"
-        raise ValueError(message)
-    selected = [name for name in desired if name in available]
-    return pl.DataFrame({name: _column_values(_record_item(columns, name)) for name in selected})
+    frames = []
+    for key in keys:
+        prefix = f"{result_method}__"
+        if not key.startswith(prefix):
+            msg = f"Unexpected {result_method} result key: {key}"
+            raise ValueError(msg)
+        contrast = key[len(prefix) :]
+        columns = _strings(namespace[f"varm_columns/{key}"])
+        annotations = namespace[f"varm_annotations/{key}"]
+        available = set(source["var"]) | set(columns) | set(annotations) | {"contrast"}
+        missing = required - available
+        if missing:
+            msg = f"{result_method} lacks required columns: {sorted(missing)}"
+            raise ValueError(msg)
+        selected = [name for name in desired if name in available]
+        present = source[f"varm/{key}__present"][()].reshape(-1).astype(bool)
+        values = source[f"varm/{key}"][()]
+        if values.shape != (len(present), len(columns)):
+            msg = f"Result matrix and columns disagree for {key}"
+            raise ValueError(msg)
+        selected_rows = np.flatnonzero(present)
+        fields = {}
+        for name in selected:
+            if name == "contrast":
+                fields[name] = [contrast] * len(selected_rows)
+            elif name in columns:
+                column = values[selected_rows, columns.index(name)]
+                fields[name] = [float(value) if np.isfinite(value) else None for value in column]
+            else:
+                dataset = annotations[name] if name in annotations else source[f"var/{name}"]
+                column = _strings(dataset) if dataset.dtype.kind in "OSU" else dataset[()].tolist()
+                if "as.na" in dataset.attrs:
+                    column = [None if value == "NA" else value for value in column]
+                fields[name] = [column[index] for index in selected_rows]
+        frames.append(pl.DataFrame(fields))
+    return pl.concat(frames, how="diagonal_relaxed")
 
 
 def _site_frame(modality: h5py.Group) -> pl.DataFrame:
@@ -213,11 +240,11 @@ def _protein_matrix(
 
 def _stats_frame(handle: h5py.File, spec: MethodSpec) -> pl.DataFrame:
     desired = (*_RESULT_COLUMNS, spec.effect, spec.fdr, spec.p_value, spec.std_error)
-    raw = _record_frame(handle, spec.modality, spec.record, spec.table, desired)
+    raw = _result_frame(handle, spec.modality, spec.result_method, desired)
     required = {spec.effect, spec.fdr}
     missing = required - set(raw.columns)
     if missing:
-        message = f"{spec.table} lacks required result columns: {sorted(missing)}"
+        message = f"{spec.result_method} lacks required result columns: {sorted(missing)}"
         raise ValueError(message)
     raw = raw.filter(pl.col("site").is_not_null())
     gene_column = "gene_name.site" if "gene_name.site" in raw.columns else "gene_name"
@@ -254,11 +281,10 @@ def _stats_frame(handle: h5py.File, spec: MethodSpec) -> pl.DataFrame:
         .alias("imputed")
     )
     dpa_spec = METHOD_SPECS["DPA"]
-    source = _record_frame(
+    source = _result_frame(
         handle,
         dpa_spec.modality,
-        dpa_spec.record,
-        dpa_spec.table,
+        dpa_spec.result_method,
         ("protein_Id", "site", "contrast", "diff.site", "diff.protein"),
     ).filter(pl.col("site").is_not_null())
     lookup = source.select(
@@ -270,7 +296,7 @@ def _stats_frame(handle: h5py.File, spec: MethodSpec) -> pl.DataFrame:
     )
     stats = stats.join(lookup, on=["protein_Id", "site", "contrast"], how="left")
     if stats.select(pl.struct("protein_Id", "site", "contrast").n_unique()).item() != stats.height:
-        msg = f"{spec.table} contains duplicate site/contrast keys"
+        msg = f"{spec.result_method} contains duplicate site/contrast keys"
         raise ValueError(msg)
     return stats
 

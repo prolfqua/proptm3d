@@ -5,7 +5,10 @@ from __future__ import annotations
 import json
 import shutil
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from zipfile import ZipFile
 
 import cbor2
 import polars as pl
@@ -22,6 +25,28 @@ from proptm3d.uniprot_cache import AnnotationTables, load_annotations
 MANIFEST_KIND = "proptm3d-prepared-method"
 DEFAULT_INPUT = Path("PTM_statistics.h5mu")
 DEFAULT_OUTPUT = Path("output_3d")
+
+
+@contextmanager
+def _statistics_source(input_file: Path, output_dir: Path) -> Iterator[Path]:
+    if input_file.suffix.lower() != ".zip":
+        yield input_file
+        return
+
+    with ZipFile(input_file) as archive:
+        members = [
+            item
+            for item in archive.infolist()
+            if not item.is_dir() and Path(item.filename).name == "PTM_statistics.h5mu"
+        ]
+        if len(members) != 1:
+            msg = f"Expected exactly one PTM_statistics.h5mu in {input_file}; found {len(members)}"
+            raise ValueError(msg)
+        with tempfile.TemporaryDirectory(prefix=".statistics-", dir=output_dir) as temporary:
+            statistics_file = Path(temporary) / "PTM_statistics.h5mu"
+            with archive.open(members[0]) as source, statistics_file.open("wb") as target:
+                shutil.copyfileobj(source, target)
+            yield statistics_file
 
 
 def _write_cbor(path: Path, payload: object) -> None:
@@ -222,7 +247,8 @@ def prepare_methods(
         raise FileNotFoundError(input_file)
     output_dir.mkdir(parents=True, exist_ok=True)
     cache_root = cache_root or Path.home() / ".cache" / "proptm3d"
-    tables = [read_prepared_tables(input_file, method) for method in methods]
+    with _statistics_source(input_file, output_dir) as statistics_file:
+        tables = [read_prepared_tables(statistics_file, method) for method in methods]
     fasta_ids = list({fasta for item in tables for fasta in item.sites["fasta.id"]})
     accessions = {accession for item in tables for accession in item.proteins["accession"]}
     isoforms = sorted(accession for accession in accessions if "-" in accession)
