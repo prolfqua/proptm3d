@@ -1,6 +1,7 @@
 # Large data files & local outputs
 PTM_o42260_PTManalysis/
 output_3d/
+bludau_pbio.3001636.pdf
 
 # Python
 docs/_build/
