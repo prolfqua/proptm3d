@@ -1,3 +1,4 @@
+import { UNAVAILABLE_STRUCTURE } from "../src/structural.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { computeLogos } from "../src/logo.js";
@@ -43,6 +44,7 @@ function row(fields: Partial<SiteIndexRow>): SiteIndexRow {
     protein_fc: 0.5,
     accession: "P1",
     has_measurement: true,
+    structure: UNAVAILABLE_STRUCTURE,
     ...fields,
   };
 }

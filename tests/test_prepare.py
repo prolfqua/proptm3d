@@ -101,6 +101,18 @@ def external_data(monkeypatch):
         model_dir.mkdir(parents=True, exist_ok=True)
         with gzip.open(model_dir / "AF-P12345-F1-model_v6.cif.gz", "wb") as stream:
             stream.write(b"data_P12345\n")
+        pae_dir = cache_root / "alphafold" / "pae"
+        pae_dir.mkdir(parents=True, exist_ok=True)
+        with gzip.open(pae_dir / "AF-P12345-F1-predicted_aligned_error_v6.json.gz", "wt") as pae:
+            json.dump(
+                [
+                    {
+                        "predicted_aligned_error": [[0, 3], [4, 0]],
+                        "max_predicted_aligned_error": 31.75,
+                    }
+                ],
+                pae,
+            )
         return {
             "P12345": [
                 {
@@ -180,7 +192,17 @@ def test_prepare_all_writes_method_scoped_payloads_and_clean(
             "start": 1,
             "end": 7,
             "url": "structures/AF-P12345-F1-model_v6.cif.gz",
+            "pae_url": "pae/AF-P12345-F1-predicted_aligned_error_v6.json.gz",
         }
+        pae_link = folder / "pae" / "AF-P12345-F1-predicted_aligned_error_v6.json.gz"
+        assert pae_link.is_symlink()
+        assert (
+            pae_link.resolve()
+            == (
+                cache / "alphafold" / "pae" / "AF-P12345-F1-predicted_aligned_error_v6.json.gz"
+            ).resolve()
+        )
+        assert [path.name for path in (folder / "pae").iterdir()] == [pae_link.name]
     stats = pl.read_parquet(root / "DPU" / "tables" / "site_stats.parquet")
     assert stats.height == 3
     assert stats["effect"][0] == 0.6
@@ -227,9 +249,34 @@ def test_prepare_writes_typed_empty_structures_parquet(
         "start": pl.Int64,
         "end": pl.Int64,
         "url": pl.String,
+        "pae_url": pl.String,
     }
     assert manifest["counts"]["with_structures"] == 0
     assert manifest["counts"]["complete_result_structures"] == 0
+    assert list((root / "DPA" / "pae").iterdir()) == []
+
+
+def test_prepare_leaves_pae_url_null_without_a_cached_matrix(
+    prepared_h5mu, external_data, tmp_path
+):
+    cache = tmp_path / "cache"
+    root = tmp_path / "output_3d"
+
+    def remove_pae(*args, **kwargs):
+        models = cache_models(*args, **kwargs)
+        (cache / "alphafold" / "pae" / "AF-P12345-F1-predicted_aligned_error_v6.json.gz").unlink()
+        return models
+
+    cache_models = prepare.cache_models
+    prepare.cache_models = remove_pae
+    try:
+        prepare.prepare_stats(prepared_h5mu, root, ("DPA",), cache)
+    finally:
+        prepare.cache_models = cache_models
+
+    structure = pl.read_parquet(root / "DPA" / "tables" / "structures.parquet").row(0, named=True)
+    assert structure["pae_url"] is None
+    assert list((root / "DPA" / "pae").iterdir()) == []
 
 
 def test_prepare_structural_context_exports_site_annotations(

@@ -13,7 +13,7 @@ from zipfile import ZipFile
 
 import polars as pl
 
-from proptm3d.alphafold_cache import ARCHIVE_VERSION, cache_models
+from proptm3d.alphafold_cache import ARCHIVE_VERSION, cache_models, cached_pae_file
 from proptm3d.gsea_data import GseaTables, archive_gsea_members, read_gsea_tables
 from proptm3d.prepared_data import (
     METHOD_SPECS,
@@ -158,6 +158,20 @@ def _add_annotations(
     return proteins, features
 
 
+def _pae_url(model: dict, cache_root: Path) -> str | None:
+    cached = cached_pae_file(model, cache_root)
+    return None if cached is None else f"pae/{cached.name}"
+
+
+def _link_pae_files(staging: Path, pae_urls: list[str], cache_root: Path) -> None:
+    """Expose only the experiment's cached PAE matrices, one symlink per model."""
+    pae_cache = (cache_root / "alphafold" / "pae").resolve()
+    (staging / "pae").mkdir()
+    for url in pae_urls:
+        name = Path(url).name
+        (staging / "pae" / name).symlink_to(pae_cache / name)
+
+
 def _write_method(
     staging: Path,
     tables: PreparedTables,
@@ -187,6 +201,7 @@ def _write_method(
             "start": model["start"],
             "end": model["end"],
             "url": f"structures/{model['file']}",
+            "pae_url": _pae_url(model, cache_root),
         }
         for protein in proteins.iter_rows(named=True)
         for model in models.get(protein["accession"], [])
@@ -202,9 +217,11 @@ def _write_method(
             "start": pl.Int64,
             "end": pl.Int64,
             "url": pl.String,
+            "pae_url": pl.String,
         },
     )
     structures_table.write_parquet(staging / "tables" / "structures.parquet")
+    _link_pae_files(staging, structures_table["pae_url"].drop_nulls().to_list(), cache_root)
     structural_context = site_structural_context(tables.sites, context_files)
     structural_context.write_parquet(staging / "tables" / "site_structural_context.parquet")
     if gsea is not None:

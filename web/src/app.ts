@@ -5,14 +5,16 @@ import { loadAppData, loadProteinDetail } from './data.js'
 import { buildDetailRows, displayProteinDescription, selectDetailRows, type DetailRow, type EstimateType } from './detail.js'
 import { computeLogos } from './logo.js'
 import { renderLogo } from './logo-view.js'
+import { buildPaeFigure, loadPae, paeBlockSize, paeModelFor, renderPae } from './pae.js'
 import { servedUrl } from './served-url.js'
+import { ALL_STRUCTURES, exposureLabel, isStructurallyFiltered, passesStructuralFilters, plddtLabel, regionLabel, structureDetail, structureLabel, type ExposureFilter, type RegionFilter, type StructuralFilters } from './structural.js'
 import { summarizeProteins, type ProteinSummary } from './summary.js'
-import type { AppData, ProteinCatalogRow, ProteinDetail, Thresholds } from './types.js'
+import type { AppData, ProteinCatalogRow, ProteinDetail, SiteStructure, Thresholds } from './types.js'
 import type { SiteMarker, StructureViewer } from './structure.js'
 
 type MainView = 'find' | 'protein' | 'abundance'
 type FindView = 'all' | 'single' | 'sequlogos'
-type DetailView = 'structure' | 'ntoc'
+type DetailView = 'structure' | 'ntoc' | 'pae'
 type PlotBackgrounds = { schema_version: '1'; plots: Record<string, {
   volcano: PlotBackground; protein_site: PlotBackground
 }> }
@@ -29,6 +31,17 @@ async function loadPlotBackgrounds(baseUrl = document.baseURI): Promise<PlotBack
     plots.protein_site.file = servedUrl(plots.protein_site.file, baseUrl).href
   }
   return backgrounds
+}
+
+function residueLabel(row: Pick<DetailRow, 'site' | 'modAA' | 'posInProtein'>): string {
+  return row.modAA && row.posInProtein !== null ? `${row.modAA}${row.posInProtein}` : row.site
+}
+
+function structureCell(structure: SiteStructure, label: string): string {
+  const span = document.createElement('span')
+  span.textContent = label
+  span.title = structureDetail(structure)
+  return span.outerHTML
 }
 
 function numberLabel(value: number | null, digits = 3): string {
@@ -49,6 +62,8 @@ class PtmBrowserApp extends LitElement {
   private displayedContrast = ''
   private estimateType: EstimateType = 'all'
   private showAllSites = false
+  private structural: StructuralFilters = ALL_STRUCTURES
+  private paeLoadId = 0
   private selectedSite: string | null = null
   private thresholds: Thresholds = { fdr: 0.05, absEffect: 1 }
   private detailLoadId = 0
@@ -78,6 +93,8 @@ class PtmBrowserApp extends LitElement {
         <div class="control threshold"><label for="effect-cutoff">|log2FC| &gt;</label><input id="effect-cutoff" type="number" min="1" step="0.1" value="1" @input=${() => this.changeThresholds()} /></div>
         <div class="control global-contrast"><label for="displayed-contrast">Displayed contrast</label><select id="displayed-contrast" @change=${(event: Event) => this.changeDisplayedContrast(event)}></select></div>
         <div class="control estimate"><label for="estimate-type">Estimate</label><select id="estimate-type" @change=${(event: Event) => this.changeEstimateType(event)}><option value="all">All</option><option value="observed">Observed</option><option value="lod_imputed">LOD imputed</option></select></div>
+        <div class="control structural"><label for="exposure-filter">Exposure</label><select id="exposure-filter" title="Bludau prediction-aware exposure; sites without matched AlphaFold context are excluded unless All" @change=${() => this.changeStructuralFilters()}><option value="all">All</option><option value="exposed">Exposed</option><option value="buried">Buried</option></select></div>
+        <div class="control structural"><label for="region-filter">Region</label><select id="region-filter" title="Bludau prediction-aware intrinsically disordered region; sites without matched AlphaFold context are excluded unless All" @change=${() => this.changeStructuralFilters()}><option value="all">All</option><option value="idr">IDR</option><option value="structured">Structured</option></select></div>
         <div class="control global-search"><label for="find-search">Search</label><input id="find-search" type="search" placeholder="Gene, ID or accession" @input=${() => this.refreshSummary()} /></div>
       </div>
       <nav class="main-tabs" aria-label="Workspaces">
@@ -131,6 +148,7 @@ class PtmBrowserApp extends LitElement {
                 <nav class="detail-tabs" aria-label="Protein views">
                   <button type="button" data-detail="structure" aria-selected="true" @click=${() => this.showDetailView('structure')}>3D structure</button>
                   <button type="button" data-detail="ntoc" aria-selected="false" @click=${() => this.showDetailView('ntoc')}>N-to-C lollipop</button>
+                  <button type="button" data-detail="pae" aria-selected="false" @click=${() => this.showDetailView('pae')}>PAE</button>
                 </nav>
                 <div id="structure-panel" class="card"><div class="view-note">Red up · blue down · gray no effect</div>
                   <div class="viewer-controls">
@@ -140,6 +158,7 @@ class PtmBrowserApp extends LitElement {
                   <div id="structure-view" class="structure-host"></div><div id="structure-status" class="viewer-status" role="status"></div>
                 </div>
                 <div id="ntoc-panel" class="card" hidden><div class="view-note">Sticks: method log2FC · dashed/open: imputed · ×: no estimate</div><div id="ntoc-plot" class="ntoc-host"></div></div>
+                <div id="pae-panel" class="card" hidden><div class="view-note">Predicted aligned error · dark: confident relative placement · light: uncertain relative placement · dotted: selected site</div><div id="pae-plot" class="pae-host"></div><div id="pae-status" class="viewer-status" role="status"></div></div>
               </div>
             </div>
             <div class="controls" style="margin-top:0.9rem"><button type="button" @click=${() => this.showMain('abundance')}>Open selected site's abundance →</button><span id="selected-site-note" class="subtle"></span></div>
@@ -264,6 +283,16 @@ class PtmBrowserApp extends LitElement {
     if (this.detail) void this.refreshDetail()
   }
 
+  private changeStructuralFilters(): void {
+    this.structural = {
+      exposure: this.el<HTMLSelectElement>('#exposure-filter').value as ExposureFilter,
+      region: this.el<HTMLSelectElement>('#region-filter').value as RegionFilter,
+    }
+    this.refreshSummary()
+    this.requestFindPlots()
+    if (this.detail) void this.refreshDetail()
+  }
+
   private changeShowAllSites(): void {
     this.showAllSites = this.el<HTMLInputElement>('#show-all-sites').checked
     if (this.detail) void this.refreshDetail()
@@ -276,9 +305,11 @@ class PtmBrowserApp extends LitElement {
     }
     this.el('#structure-panel').hidden = view !== 'structure'
     this.el('#ntoc-panel').hidden = view !== 'ntoc'
+    this.el('#pae-panel').hidden = view !== 'pae'
     if (this.mainView !== 'protein') return
     if (view === 'structure') this.viewer?.resize()
-    else if (this.detail) void this.refreshNtoC()
+    else if (view === 'ntoc' && this.detail) void this.refreshNtoC()
+    else if (view === 'pae') void this.refreshPae()
   }
 
   private changeThresholds(): void {
@@ -296,17 +327,19 @@ class PtmBrowserApp extends LitElement {
     if (this.detail) void this.refreshDetail()
   }
 
-  private estimateScopedIndex() {
+  /** The site set shared by every Find view: estimate type and structural filters, never significance. */
+  private visibleSiteIndex() {
     const index = this.data!.siteIndex
-    return this.estimateType === 'all' ? index
-      : index.filter((row) => row.site_estimate_type === this.estimateType)
+    if (this.estimateType === 'all' && !isStructurallyFiltered(this.structural)) return index
+    return index.filter((row) => (this.estimateType === 'all' || row.site_estimate_type === this.estimateType)
+      && passesStructuralFilters(row.structure, this.structural))
   }
 
   private refreshSummary(): void {
     if (!this.data) return
     this.setHoveredProtein(null)
     const contrast = this.findView === 'all' ? null : this.displayedContrast
-    const summaries = summarizeProteins(this.data.proteins, this.estimateScopedIndex(), contrast, this.thresholds)
+    const summaries = summarizeProteins(this.data.proteins, this.visibleSiteIndex(), contrast, this.thresholds)
     const search = this.el<HTMLInputElement>('#find-search').value.trim().toLocaleLowerCase()
     const matching = search ? summaries.filter((row) => [row.gene_name, row.accession, row.protein_Id]
       .some((value) => value?.toLocaleLowerCase().includes(search))) : summaries
@@ -316,7 +349,8 @@ class PtmBrowserApp extends LitElement {
   }
 
   private findPlotKey(): string {
-    return `${this.findView}\u0000${this.displayedContrast}\u0000${this.estimateType}\u0000${this.thresholds.fdr}\u0000${this.thresholds.absEffect}`
+    return [this.findView, this.displayedContrast, this.estimateType, this.thresholds.fdr,
+      this.thresholds.absEffect, this.structural.exposure, this.structural.region].join('\u0000')
   }
 
   private requestFindPlots(debounce = false): void {
@@ -426,7 +460,7 @@ class PtmBrowserApp extends LitElement {
         const volcanoUpdate: ProteinTraceUpdate = focusProteinTraces(figures.volcano, proteinId)
         const scatterUpdate: ProteinTraceUpdate = focusProteinTraces(figures.proteinSite, proteinId)
         if (proteinId !== null) {
-          const rows = this.estimateScopedIndex()
+          const rows = this.visibleSiteIndex()
           const volcanoPoints = proteinBackgroundPoints(rows, proteinId, this.displayedContrast,
             'volcano', this.thresholds.fdr, this.thresholds.absEffect)
           const scatterPoints = proteinBackgroundPoints(rows, proteinId, this.displayedContrast,
@@ -467,7 +501,7 @@ class PtmBrowserApp extends LitElement {
         if (view === 'all') break
         const key = this.findPlotKey()
         if (this.renderedFindPlotKey === key || this.findPlotTimer !== null) break
-        const siteIndex = this.estimateScopedIndex()
+        const siteIndex = this.visibleSiteIndex()
         const contrast = this.displayedContrast
         const thresholds = { ...this.thresholds }
         const backgrounds = this.plotBackgrounds?.plots[contrast]
@@ -586,7 +620,7 @@ class PtmBrowserApp extends LitElement {
   private visibleDetailRows(): DetailRow[] {
     if (!this.detail) return []
     return selectDetailRows(this.detail, this.displayedContrast, this.thresholds,
-      this.estimateType, this.showAllSites)
+      this.estimateType, this.showAllSites, this.structural)
   }
 
   private async refreshDetail(loadStructure = false): Promise<void> {
@@ -620,6 +654,16 @@ class PtmBrowserApp extends LitElement {
         headerTooltip: 'Passes the shared FDR and |log2FC| thresholds' },
       { title: 'Measured', field: 'has_measurement', width: 75, formatter: 'tickCross' },
       { title: 'Estimate', field: 'estimate_status', width: 115 },
+      { title: 'Exposure', field: 'structure.exposure', width: 96,
+        headerTooltip: 'Bludau prediction-aware exposure from AlphaFold coordinates and PAE; hover a cell for neighbor counts',
+        formatter: (cell) => structureCell((cell.getData() as DetailRow).structure, exposureLabel((cell.getData() as DetailRow).structure)) },
+      { title: 'Region', field: 'structure.region', width: 96,
+        headerTooltip: 'Bludau prediction-aware intrinsically disordered region (IDR) or structured region',
+        formatter: (cell) => structureCell((cell.getData() as DetailRow).structure, regionLabel((cell.getData() as DetailRow).structure)) },
+      { title: 'pLDDT', field: 'structure.plddt', width: 62, hozAlign: 'right',
+        headerTooltip: 'AlphaFold per-residue model confidence at the site; informational, not a filter',
+        sorter: 'number',
+        formatter: (cell) => plddtLabel((cell.getData() as DetailRow).structure) },
     ]
     this.detailTable = new TabulatorFull(this.el('#detail-table'), {
       data: rows, columns, columnDefaults: { headerWordWrap: true, headerTooltip: true },
@@ -643,7 +687,6 @@ class PtmBrowserApp extends LitElement {
   private selectSite(site: string): void {
     if (!this.visibleDetailRows().some((row) => row.site === site)) return
     this.selectedSite = site
-    this.el('#selected-site-note').textContent = `Selected ${site} · ${this.displayedContrast}`
     this.syncSelectedTableRow()
     void this.refreshDetailViews(false, this.visibleDetailRows())
     if (this.mainView === 'abundance') void this.refreshAbundance()
@@ -660,16 +703,18 @@ class PtmBrowserApp extends LitElement {
   }
 
   private siteMarkers(rows: DetailRow[]): SiteMarker[] {
-    return rows.map((row) => ({ site: row.site, posInProtein: row.posInProtein,
-      effect: row.effect, fdr: row.fdr }))
+    return rows.map((row) => ({ site: row.site, label: residueLabel(row), posInProtein: row.posInProtein,
+      effect: row.effect, fdr: row.fdr, structure: row.structure }))
   }
 
   private async refreshDetailViews(loadStructure: boolean, rows: DetailRow[]): Promise<void> {
     if (!this.detail) return
     const detail = this.detail
     const id = this.detailLoadId
-    this.el('#selected-site-note').textContent = this.selectedSite
-      ? `Selected ${this.selectedSite} · ${this.displayedContrast}` : 'No site selected'
+    const selected = rows.find((row) => row.site === this.selectedSite)
+    this.el('#selected-site-note').textContent = selected
+      ? `Selected ${structureLabel(residueLabel(selected), selected.structure)} · ${this.displayedContrast}`
+      : 'No site selected'
     if (this.detailView === 'ntoc') await this.refreshNtoC(rows)
     if (id !== this.detailLoadId || this.detail !== detail) return
     try {
@@ -691,6 +736,38 @@ class PtmBrowserApp extends LitElement {
       if (this.detailView === 'structure' && this.mainView === 'protein') this.viewer.resize()
     } catch (error) {
       this.el('#structure-status').textContent = error instanceof Error ? error.message : String(error)
+    }
+    await this.refreshPae()
+  }
+
+  /** Loads one model's PAE only while its tab is shown; follows the fragment shown in 3D. */
+  private async refreshPae(): Promise<void> {
+    const status = this.el('#pae-status')
+    if (this.detailView !== 'pae' || this.mainView !== 'protein' || !this.detail) return
+    const id = ++this.paeLoadId
+    const detail = this.detail
+    const selected = this.visibleDetailRows().find((row) => row.site === this.selectedSite) ?? null
+    const position = selected?.posInProtein ?? null
+    const model = paeModelFor(detail.structures, this.viewer?.activeFragment ?? null)
+    const plot = this.el<HTMLDivElement>('#pae-plot')
+    plot.hidden = true
+    if (!model) { status.textContent = 'No AlphaFold model is available for this protein.'; return }
+    if (!model.pae_url) { status.textContent = `No cached PAE matrix for AlphaFold fragment ${model.fragment}.`; return }
+    status.textContent = `Loading PAE for AlphaFold fragment ${model.fragment}…`
+    try {
+      const matrix = await loadPae(model.pae_url)
+      if (id !== this.paeLoadId || this.detail !== detail) return
+      plot.hidden = false
+      await renderPae(plot, buildPaeFigure(matrix, model, position, detail.protein.gene_name || detail.protein.protein_Id), (clicked) => {
+        const block = paeBlockSize(matrix.size)
+        const site = this.visibleDetailRows().find((row) => row.posInProtein !== null
+          && row.posInProtein >= clicked && row.posInProtein < clicked + block)
+        if (site) this.selectSite(site.site)
+      })
+      status.textContent = `${matrix.size.toLocaleString()} residues · maximum PAE ${matrix.maxPae} Å`
+        + (position === null ? '' : ` · guides at residue ${position}`)
+    } catch (error) {
+      if (id === this.paeLoadId) status.textContent = error instanceof Error ? error.message : String(error)
     }
   }
 

@@ -1,5 +1,6 @@
+import { passesStructuralFilters, siteStructure, UNAVAILABLE_STRUCTURE, type StructuralFilters } from './structural.js'
 import { isSignificant } from './summary.js'
-import type { MeasuredSite, ProteinDetail, SiteResult, Thresholds } from './types.js'
+import type { MeasuredSite, ProteinDetail, SiteResult, SiteStructure, Thresholds } from './types.js'
 
 export interface DetailRow {
   row_id: string
@@ -16,6 +17,7 @@ export interface DetailRow {
   estimate_status: string
   imputed: boolean
   passes_cutoff: boolean
+  structure: SiteStructure
 }
 
 export type EstimateType = 'all' | 'observed' | 'lod_imputed'
@@ -30,6 +32,7 @@ function rowFrom(
   result: SiteResult | undefined,
   contrast: string,
   thresholds: Thresholds,
+  structure: SiteStructure,
 ): DetailRow {
   const site = measured?.site ?? result!.site
   return {
@@ -47,18 +50,23 @@ function rowFrom(
     estimate_status: !result ? 'No result' : result.site_estimate_type ?? (result.imputed ? 'Imputed' : 'Estimated'),
     imputed: result?.imputed ?? false,
     passes_cutoff: result ? isSignificant(result, thresholds) : false,
+    structure,
   }
 }
+
 
 /** Keep measured sites without a result, including CF-DPU's untested sites. */
 export function buildDetailRows(detail: ProteinDetail, contrast: string, thresholds: Thresholds): DetailRow[] {
   const measured = new Map(detail.sites.map((site) => [site.site, site]))
   const selectedResults = detail.results.filter((result) => result.contrast === contrast)
   const results = new Map(selectedResults.map((result) => [result.site, result]))
-  const rows = detail.sites.map((site) => rowFrom(site, results.get(site.site), contrast, thresholds))
+  const structures = new Map(detail.context.map((row) => [row.site, siteStructure(row)]))
+  const structureOf = (site: string) => structures.get(site) ?? UNAVAILABLE_STRUCTURE
+  const rows = detail.sites.map((site) =>
+    rowFrom(site, results.get(site.site), contrast, thresholds, structureOf(site.site)))
   for (const result of selectedResults) {
     if (measured.has(result.site)) continue
-    rows.push(rowFrom(undefined, result, contrast, thresholds))
+    rows.push(rowFrom(undefined, result, contrast, thresholds, structureOf(result.site)))
   }
   return rows
 }
@@ -70,8 +78,10 @@ export function selectDetailRows(
   thresholds: Thresholds,
   estimateType: EstimateType,
   showAll: boolean,
+  structural: StructuralFilters,
 ): DetailRow[] {
   return buildDetailRows(detail, contrast, thresholds).filter((row) =>
-    (showAll || row.passes_cutoff) && (estimateType === 'all' || row.estimate_status === estimateType),
+    (showAll || row.passes_cutoff) && (estimateType === 'all' || row.estimate_status === estimateType)
+    && passesStructuralFilters(row.structure, structural),
   )
 }

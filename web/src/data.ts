@@ -9,9 +9,11 @@ import type {
   RunManifest,
   SiteIndexRow,
   SiteResult,
+  SiteStructuralContext,
   StructureFile,
 } from "./types.js";
 import { servedUrl } from "./served-url.js";
+import { siteStructure, UNAVAILABLE_STRUCTURE } from "./structural.js";
 
 export type ParquetTableKey = keyof RunManifest["files"];
 
@@ -46,6 +48,12 @@ type ParquetStructure = Omit<StructureFile, "fragment" | "version" | "start" | "
   version: number | bigint;
   start: number | bigint;
   end: number | bigint | null;
+};
+
+type ParquetContextInteger = "posInProtein" | "fragment" | "version" | "model_position"
+  | "nAA_12_70_pae" | "nAA_24_180_pae";
+type ParquetContext = Omit<SiteStructuralContext, ParquetContextInteger> & {
+  [column in ParquetContextInteger]: number | bigint | null;
 };
 
 const parquetTables = new Map<string, Promise<unknown[]>>();
@@ -107,8 +115,22 @@ function normalizeStructure(row: ParquetStructure): StructureFile {
     start: Number(row.start),
     end: numberOrNull(row.end),
     url: row.url,
+    pae_url: row.pae_url,
   };
 }
+
+function normalizeContext(row: ParquetContext): SiteStructuralContext {
+  return {
+    ...row,
+    posInProtein: numberOrNull(row.posInProtein),
+    fragment: numberOrNull(row.fragment),
+    version: numberOrNull(row.version),
+    model_position: numberOrNull(row.model_position),
+    nAA_12_70_pae: numberOrNull(row.nAA_12_70_pae),
+    nAA_24_180_pae: numberOrNull(row.nAA_24_180_pae),
+  };
+}
+
 
 async function loadParquetRows<T>(path: string, baseUrl: string): Promise<T[]> {
   const url = servedUrl(path, baseUrl).href;
@@ -133,12 +155,15 @@ export async function loadAppData(baseUrl = document.baseURI): Promise<AppData> 
   if (run.kind !== "proptm3d-prepared-method" || run.schema_version !== "2") {
     throw new Error("This browser app requires a proptm3d prepared method with payload schema 2.");
   }
-  const [proteinRows, stats, sites, structures] = await Promise.all([
+  const [proteinRows, stats, sites, structures, context] = await Promise.all([
     loadParquetTable<ParquetProtein>(run, "proteins_parquet", baseUrl),
     loadParquetTable<ParquetSiteResult>(run, "site_stats_parquet", baseUrl),
     loadParquetTable<ParquetMeasuredSite>(run, "sites_parquet", baseUrl),
     loadParquetTable<ParquetStructure>(run, "structures_parquet", baseUrl),
+    loadParquetTable<ParquetContext>(run, "site_structural_context_parquet", baseUrl),
   ]);
+  const structureBySite = new Map(context.map((row) =>
+    [siteKey(row.protein_Id, row.site), siteStructure(normalizeContext(row))]));
   const structureCounts = new Map<string, number>();
   for (const row of structures) {
     structureCounts.set(row.protein_Id, (structureCounts.get(row.protein_Id) ?? 0) + 1);
@@ -150,7 +175,10 @@ export async function loadAppData(baseUrl = document.baseURI): Promise<AppData> 
     if (!site) {
       throw new Error(`No measured-site metadata for ${row.protein_Id} / ${row.site}.`);
     }
-    return { ...normalizeResult(row), accession: site.accession, has_measurement: site.has_measurement };
+    return {
+      ...normalizeResult(row), accession: site.accession, has_measurement: site.has_measurement,
+      structure: structureBySite.get(siteKey(row.protein_Id, row.site)) ?? UNAVAILABLE_STRUCTURE,
+    };
   });
   return { run, proteins, siteIndex };
 }
@@ -160,18 +188,20 @@ export async function loadProteinDetail(
   run: RunManifest,
   baseUrl = document.baseURI,
 ): Promise<ProteinDetail> {
-  const [sites, stats, measurements, features, structures] = await Promise.all([
+  const [sites, stats, measurements, features, structures, context] = await Promise.all([
     loadParquetTable<ParquetMeasuredSite>(run, "sites_parquet", baseUrl),
     loadParquetTable<ParquetSiteResult>(run, "site_stats_parquet", baseUrl),
     loadParquetTable<Measurement>(run, "measurements_parquet", baseUrl),
     loadParquetTable<ParquetFeature>(run, "protein_features_parquet", baseUrl),
     loadParquetTable<ParquetStructure>(run, "structures_parquet", baseUrl),
+    loadParquetTable<ParquetContext>(run, "site_structural_context_parquet", baseUrl),
   ]);
   return {
     protein,
     sites: sites.filter((row) => row.protein_Id === protein.protein_Id).map(normalizeSite),
     results: stats.filter((row) => row.protein_Id === protein.protein_Id).map(normalizeResult),
     structures: structures.filter((row) => row.protein_Id === protein.protein_Id).map(normalizeStructure),
+    context: context.filter((row) => row.protein_Id === protein.protein_Id).map(normalizeContext),
     evidence: {
       samples: run.samples,
       measurements: measurements.filter((row) => row.protein_Id === protein.protein_Id),

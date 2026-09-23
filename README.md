@@ -76,6 +76,7 @@ DPA/
   tables/site_structural_context.parquet
   tables/gsea_terms.parquet               # prepare gsea only
   structures/                    # link to shared cached .cif.gz models
+  pae/                           # links to the experiment models' cached PAE .json.gz
 ```
 
 The manifest records the method, contrasts, samples and conditions, data release, archive version, file paths, and coverage counts. Preparation writes to a temporary directory and replaces a method package only after the export completes.
@@ -83,6 +84,12 @@ The manifest records the method, contrasts, samples and conditions, data release
 The site table retains every detected site, including those without an estimable effect. The statistics table uses `(protein_Id, site, contrast)` as its key. The DPU protein-only result rows are excluded from site statistics. The browser reads results and abundances from Parquet; no CBOR files are written to the served method directory. Deployment derives static black-point plot backgrounds from the results table.
 
 `site_structural_context.parquet` contains pLDDT, the two PAE-aware neighbor counts, and the `is_exposed`/`is_idr` flags at every catalogued site position. Its key includes the AlphaFold model ID because long-protein fragments may overlap; proptm3d preserves each matching model instead of choosing one silently. Sites without context and residue mismatches remain present with an explicit `mapping_status`.
+
+`matched` means only that the site was mapped to an AlphaFold residue with the same amino acid; it does not mean exposed, confident, or significant. `structures.parquet` carries a `pae_url` for each model whose PAE file is cached, and `pae/` links only those experiment models, not the organism-wide PAE cache.
+
+In the browser, FDR and |log2FC| remain the only significance criteria. The independent **Exposure** (All, Exposed, Buried) and **Region** (All, IDR, Structured) filters default to All, which shows the same sites as before; unmatched sites stay visible and labelled. Choosing a category excludes sites without a matched classification. Both filters apply to the Find proteins tables and plots, the Protein detail table, 3D and N-to-C markers, and Site abundance choices, including under Show all sites. pLDDT is shown for interpretation and is not a filter.
+
+Protein detail's **PAE** tab loads the displayed model's PAE only when shown and draws it as a heatmap with guides at the selected site. Low PAE means confident relative placement of two residues; high PAE means uncertain relative placement, as between domains or across linkers. PAE is not per-residue confidence, exposure, statistical evidence, or functional importance; see the [EMBL-EBI PAE guide](https://www.ebi.ac.uk/training/online/courses/alphafold/inputs-and-outputs/evaluating-alphafolds-predicted-structures-using-confidence-scores/pae-a-measure-of-global-confidence-in-alphafold-predictions/).
 
 The DPU preparation summary counts distinct sites with a finite DPU fold change and FDR in at least one contrast, plus proteins and structures represented by those sites. It separately reports measured sites without a complete DPU result; those sites remain in the prepared catalog. The manifest records both the measured catalog counts and complete-result counts.
 

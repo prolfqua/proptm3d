@@ -38,6 +38,7 @@ export interface RunManifest {
     measurements_parquet: string;
     protein_features_parquet: string;
     structures_parquet: string;
+    site_structural_context_parquet: string;
   };
 }
 
@@ -86,6 +87,7 @@ export interface SiteResult {
 export interface SiteIndexRow extends SiteResult {
   accession: string;
   has_measurement: boolean;
+  structure: SiteStructure;
 }
 
 export interface MeasuredSite {
@@ -110,6 +112,43 @@ export interface StructureFile {
   start: number;
   end: number | null;
   url: string;
+  pae_url: string | null;
+}
+
+export type MappingStatus = "matched" | "residue_mismatch" | "unavailable";
+
+export type Unclassified = "unavailable" | "residue_mismatch";
+export type ExposureClass = "exposed" | "buried" | Unclassified;
+export type RegionClass = "idr" | "structured" | Unclassified;
+
+/** Browser classification of one site from its structural-context row. */
+export interface SiteStructure {
+  exposure: ExposureClass;
+  region: RegionClass;
+  plddt: number | null;
+  context: SiteStructuralContext | null;
+}
+
+/** One row per site and matching AlphaFold model; unavailable sites carry null model fields. */
+export interface SiteStructuralContext {
+  protein_Id: string;
+  site: string;
+  accession: string;
+  posInProtein: number | null;
+  modAA: string | null;
+  has_measurement: boolean;
+  model_id: string | null;
+  fragment: number | null;
+  version: number | null;
+  model_position: number | null;
+  residue: string | null;
+  plddt: number | null;
+  nAA_12_70_pae: number | null;
+  is_exposed: boolean | null;
+  nAA_24_180_pae: number | null;
+  nAA_24_180_pae_smooth10: number | null;
+  is_idr: boolean | null;
+  mapping_status: MappingStatus;
 }
 
 export interface ProteinPayload {
@@ -117,6 +156,7 @@ export interface ProteinPayload {
   sites: MeasuredSite[];
   results: SiteResult[];
   structures: StructureFile[];
+  context: SiteStructuralContext[];
 }
 
 export interface Measurement {

@@ -238,6 +238,37 @@ def test_site_context_preserves_overlapping_models_and_unavailable_sites(tmp_pat
     matched = structural_context.site_structural_context(sites, paths)
 
     assert matched.height == 3
+    assert dict(matched.schema) == {
+        "protein_Id": pl.String,
+        "site": pl.String,
+        "accession": pl.String,
+        "posInProtein": pl.Int64,
+        "modAA": pl.String,
+        "has_measurement": pl.Boolean,
+        "model_id": pl.String,
+        "fragment": pl.Int64,
+        "version": pl.Int64,
+        "model_position": pl.Int64,
+        "residue": pl.String,
+        "plddt": pl.Float64,
+        "nAA_12_70_pae": pl.Int64,
+        "is_exposed": pl.Boolean,
+        "nAA_24_180_pae": pl.Int64,
+        "nAA_24_180_pae_smooth10": pl.Float64,
+        "is_idr": pl.Boolean,
+        "mapping_status": pl.String,
+    }
+    assert matched["fragment"].to_list() == [1, 2, None]
+    assert matched["model_id"].to_list() == ["AF-P12345-F1", "AF-P12345-F2", None]
+    unavailable = matched.filter(pl.col("mapping_status") == "unavailable").row(0, named=True)
+    assert all(
+        unavailable[column] is None
+        for column in (
+            "model_id", "fragment", "version", "model_position", "residue", "plddt",
+            "nAA_12_70_pae", "is_exposed", "nAA_24_180_pae", "nAA_24_180_pae_smooth10", "is_idr",
+        )
+    )  # fmt: skip
+    assert unavailable["posInProtein"] == 99
     assert matched.filter(pl.col("site") == "P12345_S12")["mapping_status"].to_list() == [
         "matched",
         "residue_mismatch",

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { buildDetailRows, displayProteinDescription, selectDetailRows } from '../src/detail.js'
-import type { ProteinDetail } from '../src/types.js'
+import { ALL_STRUCTURES } from '../src/structural.js'
+import type { ProteinDetail, SiteStructuralContext } from '../src/types.js'
 
 test('description display uses the prepared h5mu value without FASTA metadata', () => {
   assert.equal(displayProteinDescription('Insulin receptor substrate 2 OS=Mus musculus OX=10090 GN=Irs2'),
@@ -24,6 +25,7 @@ test('detail shows only the selected contrast and retains measured-only and resu
       { protein_Id: 'P1', site: 'Y30', contrast: 'B', effect: 3, fdr: 0.001, p_value: 0.0001,
         site_estimate_type: 'observed', imputed: false },
     ],
+    context: [] as SiteStructuralContext[],
   } as ProteinDetail
 
   const thresholds = { fdr: 0.05, absEffect: 1 }
@@ -55,6 +57,7 @@ test('detail cutoff uses strict FDR and absolute fold-change boundaries', () => 
       { protein_Id: 'P1', site: 'Y30', contrast: 'A', effect: 1, fdr: 0.01 },
       { protein_Id: 'P1', site: 'K40', contrast: 'A', effect: null, fdr: 0.01 },
     ],
+    context: [] as SiteStructuralContext[],
   } as ProteinDetail
 
   const passingSites = (fdr: number, absEffect: number) => buildDetailRows(detail, 'A', { fdr, absEffect })
@@ -82,10 +85,11 @@ test('detail selection defaults to passing sites and applies the estimate type',
       { protein_Id: 'P1', site: 'C50', contrast: 'B', effect: 2, fdr: 0.01,
         site_estimate_type: 'observed', imputed: false },
     ],
+    context: [] as SiteStructuralContext[],
   } as ProteinDetail
   const thresholds = { fdr: 0.05, absEffect: 1 }
   const sites = (contrast: string, estimateType: 'all' | 'observed' | 'lod_imputed', showAll: boolean) =>
-    selectDetailRows(detail, contrast, thresholds, estimateType, showAll).map((row) => row.site)
+    selectDetailRows(detail, contrast, thresholds, estimateType, showAll, ALL_STRUCTURES).map((row) => row.site)
 
   assert.deepEqual(sites('A', 'all', false), ['S10', 'T20', 'P60'])
   assert.deepEqual(sites('A', 'observed', false), ['S10', 'P60'])

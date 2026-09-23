@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- The browser adds independent Exposure (Exposed, Buried) and Region (IDR, Structured) filters from the precomputed Bludau structural context. Both default to All, so the default view is unchanged; a chosen category applies to every Find and Protein detail view, including Show all sites, and excludes sites without matched context. Significance still depends only on FDR and |log2FC|.
+- Protein detail shows each site's exposure, region, and pLDDT, with mapping status and raw neighbor counts in tooltips, 3D marker tooltips, and the selected-site line; residue mismatches and unavailable context stay distinct from buried or structured sites.
+- Protein detail has a PAE tab beside 3D structure and N-to-C that lazily loads the displayed AlphaFold model's PAE heatmap with guides at the selected site; clicking a cell selects a site at that residue.
+- Prepared method folders link the cached PAE file of each experiment model under `pae/`, and `structures.parquet` gains a nullable `pae_url` column. Regenerate prepared packages to use the new browser views.
 - Python installation, preparation, data-format, and API documentation now builds as a local Sphinx site and is checked in CI alongside the Python and TypeScript quality gates.
 - Protein detail now clears the previous protein and site while a new protein loads; a failed load shows its error instead of leaving stale abundance available.
 - The obsolete Excel/CSV browser pipeline and its static-app installer are retired. Method-scoped h5mu preparation and the deployed TypeScript app are the supported path.

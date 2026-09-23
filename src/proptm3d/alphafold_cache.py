@@ -333,6 +333,12 @@ def _is_cached_pae(path: Path) -> bool:
     return path.is_file() and path.stat().st_size > 0
 
 
+def cached_pae_file(model: dict, cache_root: Path) -> Path | None:
+    """Return one model's cached EBI PAE gzip file, or None when it was never downloaded."""
+    target = _pae_target(model, cache_root / "alphafold" / "pae")
+    return target if _is_cached_pae(target) else None
+
+
 def _log_pae_progress(completed: int, total: int) -> None:
     if completed % 250 == 0 or completed == total:
         logger.info("AlphaFold PAE cache: {} of {} files ready", completed, total)

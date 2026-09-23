@@ -1,5 +1,5 @@
 interface PlotlyClickEvent {
-  points: Array<{ customdata?: unknown }>
+  points: Array<{ customdata?: unknown; x?: unknown; y?: unknown }>
 }
 
 interface PlotlyGraph extends HTMLDivElement {

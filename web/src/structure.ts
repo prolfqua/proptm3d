@@ -8,6 +8,8 @@ import {
   type SurfaceStyleSpec,
 } from '3dmol/build/3Dmol.es6.js';
 import { servedUrl } from './served-url.js';
+import { structureLabel } from './structural.js';
+import type { SiteStructure } from './types.js';
 
 export type StructureRepresentation = 'cartoon' | 'backbone' | 'surface';
 export type StructureColoring = 'plddt' | 'position' | 'neutral';
@@ -21,10 +23,14 @@ export interface StructureModel {
 
 export interface SiteMarker {
   site: string;
+  label: string;
   posInProtein: number | null;
   effect: number | null;
   fdr: number | null;
+  structure: SiteStructure;
 }
+
+
 
 export interface StructureCutoffs {
   fdr: number;
@@ -125,6 +131,10 @@ export class StructureViewer {
     private readonly container: HTMLElement,
     private readonly onSiteSelect: (site: string) => void,
   ) {}
+
+  get activeFragment(): number | null {
+    return this.loadedModels[this.activeModelIndex]?.info.fragment ?? null;
+  }
 
   get status(): StructureStatus {
     return { ...this.currentStatus };
@@ -229,7 +239,7 @@ export class StructureViewer {
 
   private clearModels(): void {
     this.surfaceGeneration += 1;
-    this.viewer?.removeAllSurfaces().removeAllShapes().removeAllModels().render();
+    this.viewer?.removeAllSurfaces().removeAllShapes().removeAllLabels().removeAllModels().render();
     this.loadedModels = [];
     this.residues.clear();
   }
@@ -345,6 +355,7 @@ export class StructureViewer {
     const viewer = this.viewer;
     if (!viewer || this.loadedModels.length === 0) return;
     viewer.removeAllShapes();
+    viewer.removeAllLabels();
     for (const site of this.sites) {
       if (site.posInProtein === null) continue;
       const point = this.residues.get(site.posInProtein);
@@ -355,10 +366,25 @@ export class StructureViewer {
         site.fdr < this.cutoffs.fdr && Math.abs(site.effect) > this.cutoffs.minAbsoluteEffect;
       const center = { x: point.atom.x!, y: point.atom.y!, z: point.atom.z! };
       const radius = selected ? 2.7 : significant ? 2.15 : 1.7;
+      const tooltip = structureLabel(site.label, site.structure);
+      let label: ReturnType<GLViewer['addLabel']> | null = null;
       viewer.addSphere({
         center, radius,
         color: markerColor(site.effect), opacity: significant || selected ? 1 : 0.75,
         clickable: true, callback: () => this.onSiteSelect(site.site),
+        hoverable: true,
+        hover_callback: () => {
+          label ??= viewer.addLabel(tooltip, {
+            position: center, fontSize: 12, fontColor: '#16191d', backgroundColor: '#ffffff',
+            backgroundOpacity: 0.92, borderColor: '#d8dde3', borderThickness: 1, inFront: true,
+          });
+          viewer.render();
+        },
+        unhover_callback: () => {
+          if (label) viewer.removeLabel(label);
+          label = null;
+          viewer.render();
+        },
       });
     }
     viewer.render();

@@ -118,9 +118,8 @@ ptm-browser-app { display: block; min-height: 100vh; }
   margin-bottom: 0.9rem;
 }
 .global-filters {
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: end;
-  overflow-x: auto;
   margin: 0;
   padding: 0.5rem clamp(1rem, 2vw, 2rem);
   border: 0;
@@ -131,6 +130,7 @@ ptm-browser-app { display: block; min-height: 100vh; }
 .global-filters .control label { white-space: nowrap; }
 .global-filters .global-contrast { width: min(32vw, 24rem); min-width: 15rem; }
 .global-filters .estimate { width: 9rem; min-width: 9rem; }
+.global-filters .structural { width: 8.5rem; min-width: 8.5rem; }
 .global-filters .global-search { flex: 1 0 13rem; min-width: 13rem; }
 .show-all-sites { display: flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
 .show-all-sites input { margin: 0; }
@@ -204,6 +204,7 @@ ptm-browser-app { display: block; min-height: 100vh; }
 .view-note { padding: 0.25rem 0.7rem; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 0.72rem; text-align: right; }
 .structure-host { position: relative; height: 450px; overflow: hidden; background: #f8fafc; }
 .ntoc-host { height: 500px; }
+.pae-host { height: 500px; }
 .viewer-status { color: var(--muted); padding: 0.45rem 0.7rem; border-top: 1px solid var(--line); font-size: 0.78rem; }
 .viewer-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.65rem 1rem; padding: 0.5rem 0.7rem; }
 .viewer-controls .control { min-width: 8rem; flex: 1 1 8rem; }

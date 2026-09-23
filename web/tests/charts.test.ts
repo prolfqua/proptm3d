@@ -1,3 +1,4 @@
+import { UNAVAILABLE_STRUCTURE } from '../src/structural.js';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
@@ -20,7 +21,7 @@ function result(overrides: Partial<SiteIndexRow> = {}): SiteIndexRow {
     p_value: 0.001, std_error: 0.2, site_estimate_type: 'observed',
     protein_estimate_type: 'observed', imputed: false,
     original_site_fc: 1.5, protein_fc: 0.5,
-    accession: 'P12345', has_measurement: true,
+    accession: 'P12345', has_measurement: true, structure: UNAVAILABLE_STRUCTURE,
     ...overrides,
   };
 }
@@ -173,6 +174,7 @@ test('N-to-C keeps measured sites without results on the baseline and hides none
         fdr: null, site_estimate_type: 'lod_imputed', imputed: true }),
     ],
     structures: [],
+    context: [],
   };
   const features: FeaturePayload = {
     status: 'matched',
