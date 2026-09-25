@@ -113,6 +113,14 @@ export interface StructureFile {
   end: number | null;
   url: string;
   pae_url: string | null;
+  context_url: string | null;
+}
+
+export interface ResidueContext {
+  fragment: number;
+  position: number;
+  is_exposed: boolean | null;
+  is_idr: boolean | null;
 }
 
 export type MappingStatus = "matched" | "residue_mismatch" | "unavailable";
@@ -194,6 +202,7 @@ export interface FeaturePayload {
 export interface ProteinDetail extends ProteinPayload {
   evidence: EvidencePayload;
   features: FeaturePayload;
+  residueContext: ResidueContext[];
 }
 
 export interface AppData {

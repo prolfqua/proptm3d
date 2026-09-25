@@ -6,6 +6,7 @@ import type {
   ProteinDetail,
   ProteinFeature,
   ProteinInfo,
+  ResidueContext,
   RunManifest,
   SiteIndexRow,
   SiteResult,
@@ -54,6 +55,11 @@ type ParquetContextInteger = "posInProtein" | "fragment" | "version" | "model_po
   | "nAA_12_70_pae" | "nAA_24_180_pae";
 type ParquetContext = Omit<SiteStructuralContext, ParquetContextInteger> & {
   [column in ParquetContextInteger]: number | bigint | null;
+};
+
+type ParquetResidueContext = Omit<ResidueContext, "fragment" | "position"> & {
+  fragment: number | bigint;
+  position: number | bigint;
 };
 
 const parquetTables = new Map<string, Promise<unknown[]>>();
@@ -116,6 +122,7 @@ function normalizeStructure(row: ParquetStructure): StructureFile {
     end: numberOrNull(row.end),
     url: row.url,
     pae_url: row.pae_url,
+    context_url: row.context_url ?? null,
   };
 }
 
@@ -196,11 +203,16 @@ export async function loadProteinDetail(
     loadParquetTable<ParquetStructure>(run, "structures_parquet", baseUrl),
     loadParquetTable<ParquetContext>(run, "site_structural_context_parquet", baseUrl),
   ]);
+  const proteinStructures = structures.filter((row) => row.protein_Id === protein.protein_Id)
+    .map(normalizeStructure);
+  const residueRows = await Promise.all(proteinStructures
+    .filter((model) => model.context_url !== null)
+    .map((model) => loadParquetRows<ParquetResidueContext>(model.context_url!, baseUrl)));
   return {
     protein,
     sites: sites.filter((row) => row.protein_Id === protein.protein_Id).map(normalizeSite),
     results: stats.filter((row) => row.protein_Id === protein.protein_Id).map(normalizeResult),
-    structures: structures.filter((row) => row.protein_Id === protein.protein_Id).map(normalizeStructure),
+    structures: proteinStructures,
     context: context.filter((row) => row.protein_Id === protein.protein_Id).map(normalizeContext),
     evidence: {
       samples: run.samples,
@@ -210,6 +222,10 @@ export async function loadProteinDetail(
       status: protein.annotation_status,
       features: features.filter((row) => row.protein_Id === protein.protein_Id).map(normalizeFeature),
     },
+    residueContext: residueRows.flat().map((row) => ({
+      fragment: Number(row.fragment), position: Number(row.position),
+      is_exposed: row.is_exposed, is_idr: row.is_idr,
+    })),
   };
 }
 

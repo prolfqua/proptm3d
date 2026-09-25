@@ -12,6 +12,7 @@ export default defineConfig({
       '/data': preparedServer,
       '/tables': preparedServer,
       '/structures': preparedServer,
+      '/pae': preparedServer,
     },
   },
 })

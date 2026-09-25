@@ -6,6 +6,7 @@ import type {
   RunManifest,
   SiteIndexRow,
   SiteResult,
+  Thresholds,
 } from './types';
 
 export interface FigureSpec {
@@ -110,6 +111,11 @@ function baseLayout(title: string, height: number): Record<string, unknown> {
     xaxis: { gridcolor: COLORS.grid, zerolinecolor: COLORS.baseline },
     yaxis: { gridcolor: COLORS.grid, zerolinecolor: COLORS.baseline },
   };
+}
+
+/** The volcano and protein/site scatter colour at most sites with FDR < 0.25 and |log2FC| > 1. */
+export function plotThresholds(thresholds: Thresholds): Thresholds {
+  return { fdr: Math.min(thresholds.fdr, 0.25), absEffect: Math.max(thresholds.absEffect, 1) };
 }
 
 export function validThresholds(fdrCutoff: number, fcCutoff: number): boolean {

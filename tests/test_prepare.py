@@ -13,10 +13,15 @@ import h5py
 import polars as pl
 import pytest
 
-from proptm3d import cli, prepare, webapp
+from proptm3d import bundle, cli, prepare, prepared_root, webapp
 from proptm3d.uniprot_cache import AnnotationTables, Proteome
 
 pytest_plugins = ["test_prepared_data"]
+
+
+@pytest.fixture(autouse=True)
+def isolated_prepared_history(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli.prepared_history, "history_path", lambda: tmp_path / "history.json")
 
 
 def _gsea_artifact(analysis="DPA"):
@@ -148,6 +153,13 @@ def test_prepare_all_writes_method_scoped_payloads_and_clean(
     for method in ("DPA", "DPU", "CF-DPU"):
         folder = root / method
         assert prepare.is_prepared(folder, method)
+        assert "<ptm-browser-app>" in (folder / "index.html").read_text()
+        inventory = json.loads((folder / "data" / "browser-assets.json").read_text())
+        assert inventory["files"]
+        assert all((folder / path).is_file() for path in inventory["files"])
+        backgrounds = json.loads((folder / "data" / "plot_backgrounds.json").read_text())
+        assert backgrounds["plots"]
+        assert (folder / backgrounds["plots"]["a_vs_b"]["volcano"]["file"]).is_file()
         assert (folder / "structures" / "AF-P12345-F1-model_v6.cif.gz").is_file()
         manifest = json.loads((folder / "data" / "run.json").read_text())
         assert manifest["schema_version"] == "2"
@@ -193,6 +205,7 @@ def test_prepare_all_writes_method_scoped_payloads_and_clean(
             "end": 7,
             "url": "structures/AF-P12345-F1-model_v6.cif.gz",
             "pae_url": "pae/AF-P12345-F1-predicted_aligned_error_v6.json.gz",
+            "context_url": None,
         }
         pae_link = folder / "pae" / "AF-P12345-F1-predicted_aligned_error_v6.json.gz"
         assert pae_link.is_symlink()
@@ -206,11 +219,45 @@ def test_prepare_all_writes_method_scoped_payloads_and_clean(
     stats = pl.read_parquet(root / "DPU" / "tables" / "site_stats.parquet")
     assert stats.height == 3
     assert stats["effect"][0] == 0.6
-    assert prepare.clean_methods(root, ("DPA",)) == [root / "DPA"]
-    assert prepare.is_prepared(root / "DPU")
+    assert prepared_root.available_methods(root) == ("DPA", "DPU", "CF-DPU")
+    assert prepared_root.clean_prepared_root(root) == root.resolve()
+    assert not root.exists()
     assert cache.is_dir()
-    assert len(prepare.clean_methods(root)) == 2
-    assert cache.is_dir()
+
+
+def test_prepare_then_bundle_needs_no_browser_deploy(prepared_h5mu, external_data, tmp_path):
+    root = tmp_path / "viewer"
+    prepare.prepare_stats(prepared_h5mu, root, ("DPA",), tmp_path / "cache")
+
+    archive_path = bundle.bundle_prepared_root(root, "DPA")
+
+    with ZipFile(archive_path) as archive:
+        names = set(archive.namelist())
+        assert "index.html" in names
+        assert "data/plot_backgrounds/volcano-0.png" in names
+        asset_inventory = json.loads(archive.read("data/browser-assets.json"))
+        assert set(asset_inventory["files"]).issubset(names)
+        assert "<ptm-browser-app>" in archive.read("index.html").decode()
+
+    with (
+        bundle.extracted_bundle(archive_path) as extracted,
+        webapp.create_server(extracted) as server,
+    ):
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        try:
+            base = f"http://127.0.0.1:{server.server_address[1]}"
+            with urlopen(f"{base}/index.html") as response:
+                assert b"<ptm-browser-app>" in response.read()
+            with urlopen(f"{base}/{asset_inventory['files'][0]}") as response:
+                assert response.read()
+            with urlopen(f"{base}/data/plot_backgrounds/volcano-0.png") as response:
+                assert response.read().startswith(b"\x89PNG")
+            with urlopen(f"{base}/tables/site_stats.parquet") as response:
+                assert pl.read_parquet(response.read()).height > 0
+        finally:
+            server.shutdown()
+            worker.join()
 
 
 def test_dpu_counts_complete_results_without_dropping_measured_sites(
@@ -250,6 +297,7 @@ def test_prepare_writes_typed_empty_structures_parquet(
         "end": pl.Int64,
         "url": pl.String,
         "pae_url": pl.String,
+        "context_url": pl.String,
     }
     assert manifest["counts"]["with_structures"] == 0
     assert manifest["counts"]["complete_result_structures"] == 0
@@ -283,7 +331,10 @@ def test_prepare_structural_context_exports_site_annotations(
     prepared_h5mu, external_data, tmp_path, monkeypatch
 ):
     cache = tmp_path / "cache"
-    context_path = cache / "context.parquet"
+    context_path = (
+        cache / "alphafold" / "structural_context" / "bludau-v1" / "AF-P12345-F1-model_v6.parquet"
+    )
+    context_path.parent.mkdir(parents=True)
 
     def precomputed_contexts(proteome, models, cache_root):
         external_data.append(("context-cache", set(models)))
@@ -315,6 +366,9 @@ def test_prepare_structural_context_exports_site_annotations(
     assert context["mapping_status"].to_list() == ["matched", "matched", "unavailable"]
     assert manifest["structural_context"]["algorithm_version"] == "bludau-v1"
     assert manifest["counts"]["structural_context_models"] == 1
+    structure = pl.read_parquet(root / "DPA" / "tables" / "structures.parquet").row(0, named=True)
+    assert structure["context_url"] == "residue_context/AF-P12345-F1-model_v6.parquet"
+    assert (root / "DPA" / structure["context_url"]).resolve() == context_path.resolve()
     assert manifest["counts"]["structural_context_matched_sites"] == 2
     assert manifest["files"]["site_structural_context_parquet"] == (
         "tables/site_structural_context.parquet"
@@ -403,9 +457,9 @@ def test_prepare_gsea_requires_results_in_completed_delivery(prepared_h5mu, tmp_
 def test_prepare_entry_points_require_existing_inputs(tmp_path):
     missing = tmp_path / "missing.zip"
     with pytest.raises(FileNotFoundError):
-        prepare.prepare_stats(missing)
+        prepare.prepare_stats(missing, tmp_path / "viewer")
     with pytest.raises(FileNotFoundError):
-        prepare.prepare_gsea(missing)
+        prepare.prepare_gsea(missing, tmp_path / "viewer")
 
 
 def test_prepare_failure_preserves_existing_package(
@@ -427,14 +481,64 @@ def test_successful_reprepare_replaces_owned_package(prepared_h5mu, external_dat
     root = tmp_path / "output_3d"
     cache = tmp_path / "cache"
     prepare.prepare_stats(prepared_h5mu, root, ("DPA",), cache)
-    old_file = root / "DPA" / "old-generated-file.txt"
-    old_file.write_text("old")
-    old_cbor = root / "DPA" / "data" / "obsolete.cbor"
-    old_cbor.write_bytes(b"old")
+    (root / "DPA" / "index.html").write_text("old generated placeholder")
     prepare.prepare_stats(prepared_h5mu, root, ("DPA",), cache)
     assert prepare.is_prepared(root / "DPA", "DPA")
-    assert not old_file.exists()
-    assert not old_cbor.exists()
+    assert "old generated placeholder" not in (root / "DPA" / "index.html").read_text()
+    assert not (root / ".DPA.previous").exists()
+
+
+def test_reprepare_preserves_unrecognized_method_file(prepared_h5mu, external_data, tmp_path):
+    root = tmp_path / "viewer"
+    cache = tmp_path / "cache"
+    prepare.prepare_stats(prepared_h5mu, root, ("DPA",), cache)
+    note = root / "DPA" / "notes.txt"
+    note.write_text("user note")
+
+    with pytest.raises(ValueError, match="unrecognized"):
+        prepare.prepare_stats(prepared_h5mu, root, ("DPA",), cache)
+
+    assert note.read_text() == "user note"
+    assert prepare.is_prepared(root / "DPA", "DPA")
+    assert not (root / ".DPA.previous").exists()
+
+
+def test_reprepare_preserves_stale_backup(prepared_h5mu, external_data, tmp_path):
+    root = tmp_path / "viewer"
+    cache = tmp_path / "cache"
+    prepare.prepare_stats(prepared_h5mu, root, ("DPA",), cache)
+    backup = root / ".DPA.previous"
+    backup.mkdir()
+    (backup / "notes.txt").write_text("recover me")
+
+    with pytest.raises(FileExistsError, match="previous"):
+        prepare.prepare_stats(prepared_h5mu, root, ("DPA",), cache)
+
+    assert (backup / "notes.txt").read_text() == "recover me"
+    assert prepare.is_prepared(root / "DPA", "DPA")
+
+
+def test_failed_publish_restores_previous_method(
+    prepared_h5mu, external_data, tmp_path, monkeypatch
+):
+    root = tmp_path / "viewer"
+    prepare.prepare_stats(prepared_h5mu, root, ("DPA",), tmp_path / "cache")
+    target = root / "DPA"
+    original_manifest = (target / "data" / "run.json").read_bytes()
+    staging = root / "staging"
+    shutil.copytree(target, staging, symlinks=True)
+    original_replace = type(staging).replace
+
+    def fail_publish(self, destination):
+        if self == staging:
+            raise OSError("publish failed")
+        return original_replace(self, destination)
+
+    monkeypatch.setattr(type(staging), "replace", fail_publish)
+    with pytest.raises(OSError, match="publish failed"):
+        prepare._replace_directory(staging, target)
+
+    assert (target / "data" / "run.json").read_bytes() == original_manifest
     assert not (root / ".DPA.previous").exists()
 
 
@@ -443,7 +547,7 @@ def test_clean_refuses_unowned_directory(tmp_path):
     target.mkdir()
     (target / "keep.txt").write_text("user content")
     with pytest.raises(ValueError, match="unrecognized"):
-        prepare.clean_methods(tmp_path, ("DPA",))
+        prepared_root.clean_prepared_root(tmp_path)
     assert (target / "keep.txt").is_file()
 
 
@@ -466,7 +570,7 @@ def test_static_server_reads_cached_structure(prepared_h5mu, external_data, tmp_
 
 def test_cli_serve_checks_manifest(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="No prepared DPA"):
-        cli.serve("DPA", output_dir=tmp_path)
+        cli.serve("DPA", tmp_path)
     target = tmp_path / "DPA" / "data"
     target.mkdir(parents=True)
     (target / "run.json").write_text(json.dumps({"kind": prepare.MANIFEST_KIND, "method": "DPA"}))
@@ -474,29 +578,45 @@ def test_cli_serve_checks_manifest(tmp_path, monkeypatch):
     monkeypatch.setattr(
         cli.webapp, "serve", lambda directory, port: calls.append((directory, port))
     )
-    cli.serve("DPA", output_dir=tmp_path, port=3210)
+    cli.serve("DPA", tmp_path, port=3210)
     assert calls == [(tmp_path / "DPA", 3210)]
+    assert cli.prepared_history.prepared_folders() == (tmp_path.resolve(),)
 
 
-def test_cli_serve_without_method_lists_choices(capsys):
+def test_cli_serve_refuses_symlinked_method(tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    method = source / "DPA" / "data"
+    method.mkdir(parents=True)
+    (method / "run.json").write_text(json.dumps({"kind": prepare.MANIFEST_KIND, "method": "DPA"}))
+    alias = tmp_path / "alias"
+    alias.mkdir()
+    (alias / "DPA").symlink_to(source / "DPA", target_is_directory=True)
+    monkeypatch.setattr(cli.webapp, "serve", lambda *args, **kwargs: pytest.fail("served alias"))
+
+    with pytest.raises(ValueError, match="symlink"):
+        cli.serve("DPA", alias)
+
+
+def test_cli_serve_requires_method_and_folder(capsys):
     with pytest.raises(SystemExit) as error:
-        cli.serve()
-    assert error.value.code == 2
-    assert capsys.readouterr().err.splitlines() == [
-        "Choose one method to serve: DPA, DPU, or CF-DPU.",
-        "For example: proptm3d serve DPA",
-    ]
+        cli.app(["serve"])
+    assert error.value.code != 0
+    assert "--target" in capsys.readouterr().err
 
 
-def test_cli_prepare_explains_missing_default_input(tmp_path, monkeypatch, capsys):
-    monkeypatch.chdir(tmp_path)
+def test_serve_rejects_unprepared_path_without_folder(tmp_path):
+    with pytest.raises(ValueError, match="Pass a prepared FOLDER, METHOD FOLDER"):
+        cli.serve("DPA")
+    with pytest.raises(ValueError, match="Unknown method"):
+        cli.serve("unknown", tmp_path)
+
+
+def test_cli_prepare_requires_explicit_input(tmp_path, capsys):
     with pytest.raises(SystemExit) as error:
-        cli.prepare_stats()
+        cli.app(["prepare", "stats", str(tmp_path / "viewer")])
     captured = capsys.readouterr()
-    assert error.value.code == 2
-    assert str(tmp_path / "PTM_statistics.h5mu") in captured.err
-    assert "Usage: prepare stats" in captured.out
-    assert "--input" in captured.out
+    assert error.value.code != 0
+    assert "--input" in captured.err + captured.out
 
 
 def test_cli_prepare_prints_output_folder_and_serve_command(tmp_path, monkeypatch, capsys):
@@ -521,13 +641,13 @@ def test_cli_prepare_prints_output_folder_and_serve_command(tmp_path, monkeypatc
         ],
     )
 
-    cli.prepare_stats("DPA", input_file=source, output_dir=output)
+    cli.prepare_stats("DPA", output, input_file=source)
 
     assert capsys.readouterr().out.splitlines() == [
         "Prepared DPA: 3 measured sites, 2 proteins, 2 structures",
         "  Structural context: 2 matched sites across 2 models",
         f"  Folder: {output / 'DPA'}",
-        f"  Serve: proptm3d serve DPA --output-dir '{output}'",
+        f"  Serve: proptm3d serve DPA '{output}'",
     ]
 
 
@@ -553,7 +673,7 @@ def test_cli_prepare_reports_dpu_complete_results(tmp_path, monkeypatch, capsys)
         ],
     )
 
-    cli.prepare_stats("DPU", input_file=source, output_dir=tmp_path)
+    cli.prepare_stats("DPU", tmp_path, input_file=source)
 
     output = capsys.readouterr().out
     assert "Prepared DPU: 5 sites with fold change and FDR, 2 proteins, 2 structures" in output
@@ -585,7 +705,7 @@ def test_cli_prepare_gsea_sets_up_stats_and_gsea(tmp_path, monkeypatch, capsys):
 
     monkeypatch.setattr(cli.preparation, "prepare_gsea", prepare_gsea)
 
-    cli.prepare_gsea("DPA", input_file=source, output_dir=tmp_path)
+    cli.prepare_gsea("DPA", tmp_path, input_file=source)
 
     assert received == [(source, tmp_path, ("DPA",))]
     output = capsys.readouterr().out

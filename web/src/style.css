@@ -71,6 +71,13 @@ ptm-browser-app { display: block; min-height: 100vh; }
 .pill.method { color: var(--accent); background: var(--accent-soft); border-color: #c6d9ed; font-weight: 700; }
 .status { margin-left: auto; color: var(--muted); font-size: 0.82rem; }
 .status.error { color: var(--error); }
+.guide-toggle { border: 1px solid var(--line); border-radius: 4px; background: var(--paper); padding: 0.3rem 0.55rem; white-space: nowrap; }
+.reading-guide { position: fixed; z-index: 100; top: 0; right: 0; width: min(27rem, 100vw); height: 100vh; overflow-y: auto; background: var(--paper); border-left: 1px solid var(--line); box-shadow: -0.5rem 0 2rem #172a3d33; padding: 1rem 1.2rem 2rem; }
+.guide-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.guide-heading h2 { margin: 0; font-size: 1.1rem; }
+.guide-heading button { border: 0; background: transparent; font-size: 1.7rem; line-height: 1; }
+.reading-guide dt { margin-top: 1rem; font-weight: 700; }
+.reading-guide dd { margin: 0.2rem 0 0; color: var(--muted); font-size: 0.88rem; }
 
 .main-tabs, .find-tabs, .detail-tabs {
   display: flex;
@@ -190,27 +197,29 @@ ptm-browser-app { display: block; min-height: 100vh; }
 #protein-empty, #abundance-empty { margin: 0; padding: 0; }
 .metric-note { color: var(--muted); font-size: 0.76rem; padding: 0.5rem 0.7rem; border-top: 1px solid var(--line); }
 
-.protein-grid { display: grid; grid-template-columns: minmax(32rem, 55%) minmax(0, 1fr); gap: 0.9rem; align-items: start; }
+.protein-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.9rem; align-items: stretch; }
 .protein-heading { align-items: center; gap: 0.5rem 1rem; margin-bottom: 0.6rem; }
 .protein-heading-copy { flex: 1 1 25rem; min-width: 0; }
 .protein-heading-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.3rem 0.7rem; }
 .protein-description-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.8rem; }
 .protein-description { margin: 0.05rem 0 0; color: var(--muted); font-size: 0.82rem; line-height: 1.3; }
 .protein-links { display: inline-flex; gap: 0.7rem; font-size: 0.78rem; }
-.detail-views { display: grid; gap: 0; }
+.detail-views { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 0; }
+.detail-views > .card, .abundance-host { display: flex; flex-direction: column; min-height: 0; }
 .detail-tabs { padding: 0; margin-bottom: -1px; background: transparent; }
 .detail-tabs button[aria-selected='true'] { position: relative; z-index: 1; background: var(--paper); }
 .detail-views .card { border-top-left-radius: 0; }
 .view-note { padding: 0.25rem 0.7rem; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 0.72rem; text-align: right; }
-.structure-host { position: relative; height: 450px; overflow: hidden; background: #f8fafc; }
-.ntoc-host { height: 500px; }
-.pae-host { height: 500px; }
+.structure-host { position: relative; overflow: hidden; background: #f8fafc; }
+.structure-host, .ntoc-host, .pae-host, .abundance-host .plot-host { flex: 1 1 auto; min-height: 0; height: auto; }
 .viewer-status { color: var(--muted); padding: 0.45rem 0.7rem; border-top: 1px solid var(--line); font-size: 0.78rem; }
 .viewer-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.65rem 1rem; padding: 0.5rem 0.7rem; }
 .viewer-controls .control { min-width: 8rem; flex: 1 1 8rem; }
+.structure-color-legend { padding: 0.15rem 0.7rem 0.4rem; color: var(--muted); font-size: 0.72rem; }
+.structure-feature-legend { display: flex; flex-wrap: wrap; gap: 0.25rem 0.65rem; padding: 0 0.7rem 0.4rem; color: var(--muted); font-size: 0.72rem; }
+.structure-feature-legend span { display: inline-flex; align-items: center; gap: 0.2rem; white-space: nowrap; }
+.structure-feature-legend i { display: inline-block; width: 0.65rem; height: 0.65rem; border-radius: 2px; }
 .protein-info { color: var(--muted); font-size: 0.8rem; }
-.abundance-host { min-height: 440px; }
-.abundance-host .plot-host { min-height: 350px; }
 
 .tabulator { border: 0; font-size: 0.76rem; }
 .tabulator .tabulator-header { border-bottom-color: var(--line); background: var(--panel); }
@@ -233,6 +242,7 @@ ptm-browser-app { display: block; min-height: 100vh; }
   .logos { grid-template-columns: 1fr; }
   .table-host { height: 420px; }
   .table-host.detail-table { height: 420px; }
+  .structure-host, .ntoc-host, .pae-host, .abundance-host .plot-host { min-height: 420px; }
 }
 
 @media (max-width: 620px) {

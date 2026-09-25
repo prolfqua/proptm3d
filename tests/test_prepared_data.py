@@ -218,3 +218,10 @@ def test_preparation_requires_statistics_stage(prepared_h5mu):
         handle["uns/prophosqua/stage"][()] = "PTM_results"
     with pytest.raises(ValueError, match="PTM_statistics"):
         read_prepared_tables(prepared_h5mu, "DPA")
+
+
+def test_preparation_rejects_unsupported_mudata_schema(prepared_h5mu):
+    with h5py.File(prepared_h5mu, "r+") as handle:
+        handle["uns/prophosqua/schema_version"][()] = "1.0.0"
+    with pytest.raises(ValueError, match="Unsupported prophosqua MuData schema"):
+        read_prepared_tables(prepared_h5mu, "DPA")

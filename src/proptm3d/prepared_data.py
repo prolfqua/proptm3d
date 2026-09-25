@@ -9,7 +9,6 @@ import h5py
 import numpy as np
 import polars as pl
 
-from proptm3d.mudata_reader import _validate_stage
 from proptm3d.uniprot_accession import parse_uniprot_accession
 
 
@@ -53,6 +52,18 @@ METHOD_SPECS = {
 }
 
 SCHEMA_VERSION = "2"
+
+
+def _validate_stage(handle: h5py.File, expected_stage: str) -> None:
+    namespace = handle["uns/prophosqua"]
+    if namespace["stage"].asstr()[()] != expected_stage:
+        msg = f"proptm3d requires the completed {expected_stage} MuData stage"
+        raise ValueError(msg)
+    if namespace["schema_version"].asstr()[()] != "2.0.0":
+        msg = "Unsupported prophosqua MuData schema"
+        raise ValueError(msg)
+
+
 _RESULT_COLUMNS = (
     "protein_Id",
     "site",

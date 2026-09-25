@@ -9,10 +9,11 @@ import {
 } from '3dmol/build/3Dmol.es6.js';
 import { servedUrl } from './served-url.js';
 import { structureLabel } from './structural.js';
-import type { SiteStructure } from './types.js';
+import { featureColor, residueColor, UNANNOTATED_COLOR, type StructureColoring } from './structure-colors.js';
+import type { ProteinFeature, ResidueContext, SiteStructure } from './types.js';
 
 export type StructureRepresentation = 'cartoon' | 'backbone' | 'surface';
-export type StructureColoring = 'plddt' | 'position' | 'neutral';
+export type { StructureColoring } from './structure-colors.js';
 
 export interface StructureModel {
   url: string;
@@ -116,6 +117,9 @@ export class StructureViewer {
   private selectedSite: string | null = null;
   private cutoffs: StructureCutoffs = DEFAULT_CUTOFFS;
   private sequenceLength = 1;
+  private residueContexts = new Map<string, ResidueContext>();
+  private features: ProteinFeature[] = [];
+  private featureColors = new Map<number, number>();
   private activeModelIndex = 0;
   private representation: StructureRepresentation = 'cartoon';
   private coloring: StructureColoring = 'plddt';
@@ -140,7 +144,8 @@ export class StructureViewer {
     return { ...this.currentStatus };
   }
 
-  async load(models: StructureModel[], sites: SiteMarker[], sequenceLength: number): Promise<StructureStatus> {
+  async load(models: StructureModel[], sites: SiteMarker[], sequenceLength: number,
+    contexts: ResidueContext[] = [], features: ProteinFeature[] = []): Promise<StructureStatus> {
     this.loadGeneration += 1;
     const generation = this.loadGeneration;
     this.requestController?.abort();
@@ -150,6 +155,9 @@ export class StructureViewer {
     this.sites = sites;
     this.selectedSite = null;
     this.sequenceLength = Math.max(1, sequenceLength);
+    this.residueContexts = new Map(contexts.map((row) => [`${row.fragment}:${row.position}`, row]));
+    this.features = features;
+    this.featureColors.clear();
 
     if (models.length === 0) {
       this.currentStatus = {
@@ -258,7 +266,20 @@ export class StructureViewer {
       const atoms = model.selectedAtoms({});
       for (const atom of atoms) {
         if (atom.resi !== undefined) {
-          atom.properties = { ...atom.properties, ptmGlobalPosition: atom.resi + offset };
+          const position = atom.resi + offset;
+          const context = this.residueContexts.get(`${info.fragment}:${position}`);
+          let uniprotColor = this.featureColors.get(position);
+          if (uniprotColor === undefined) {
+            uniprotColor = featureColor(position, this.features);
+            this.featureColors.set(position, uniprotColor);
+          }
+          atom.properties = {
+            ...atom.properties,
+            ptmGlobalPosition: position,
+            ptmExposureColor: residueColor('exposure', context),
+            ptmRegionColor: residueColor('region', context),
+            ptmFeatureColor: uniprotColor,
+          };
         }
       }
       for (const atom of alphaCarbons) {
@@ -313,6 +334,9 @@ export class StructureViewer {
   private atomColor(atom: AtomSpec): number {
     if (this.coloring === 'neutral') return NEUTRAL_COLOR;
     if (this.coloring === 'plddt') return plddtColor(atom.b);
+    if (this.coloring === 'exposure') return Number(atom.properties?.ptmExposureColor ?? UNANNOTATED_COLOR);
+    if (this.coloring === 'region') return Number(atom.properties?.ptmRegionColor ?? UNANNOTATED_COLOR);
+    if (this.coloring === 'uniprot') return Number(atom.properties?.ptmFeatureColor ?? UNANNOTATED_COLOR);
     const position = Number(atom.properties?.ptmGlobalPosition);
     return Number.isFinite(position) ? positionColor(position, this.sequenceLength) : NEUTRAL_COLOR;
   }
@@ -321,6 +345,12 @@ export class StructureViewer {
     if (this.coloring === 'neutral') return { color: NEUTRAL_COLOR, opacity: 0.72 };
     if (this.coloring === 'plddt') {
       return { colorscheme: { prop: 'b', gradient: plddtGradient }, opacity: 0.72 };
+    }
+    if (this.coloring === 'exposure' || this.coloring === 'region' || this.coloring === 'uniprot') {
+      const prop = this.coloring === 'exposure' ? 'ptmExposureColor'
+        : this.coloring === 'region' ? 'ptmRegionColor' : 'ptmFeatureColor';
+      const gradient = new ColorGradient(0, 0xffffff, (color) => color);
+      return { colorscheme: { prop, gradient }, opacity: 0.72 };
     }
     const length = this.sequenceLength;
     const gradient = new ColorGradient(1, length, (position) => positionColor(position, length));

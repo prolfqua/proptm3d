@@ -29,6 +29,12 @@ export function isTested(row: Pick<SiteResult, "effect" | "fdr">): boolean {
   return isFiniteNumber(row.effect) && isFiniteNumber(row.fdr);
 }
 
+/** Cutoffs the tables and protein views accept; the dot plots are limited by plotThresholds. */
+export function validCutoffs(thresholds: Thresholds): boolean {
+  return Number.isFinite(thresholds.fdr) && thresholds.fdr > 0 && thresholds.fdr <= 1
+    && Number.isFinite(thresholds.absEffect) && thresholds.absEffect >= 0;
+}
+
 export function isSignificant(
   row: Pick<SiteResult, "effect" | "fdr">,
   thresholds: Thresholds,

@@ -14,12 +14,12 @@ dependencies = [
     "biopython>=1.85,<2",
     "cbor2>=5.6,<6",
     "cyclopts",
-    "fastexcel",
     "h5py>=3.12",
     "ijson>=3.4,<4",
     "loguru",
     "numpy",
     "polars",
+    "platformdirs>=4,<5",
     "requests",
 ]
 
@@ -38,7 +38,6 @@ dev = [
     "pytest-cov>=6,<8",
     "ruff>=0.14",
     "twine>=6",
-    "xlsxwriter>=3",
 ]
 docs = [
     "myst-parser>=4,<5",
@@ -87,8 +86,6 @@ convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "D", "ANN", "ARG", "EM"]
-# The embedded HTML/JS template has long lines.
-"src/proptm3d/web_visualizer.py" = ["E501"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -105,28 +102,18 @@ show_missing = true
 [tool.deptry]
 known_first_party = ["proptm3d"]
 
-[tool.deptry.per_rule_ignores]
-# fastexcel is polars' Excel engine, loaded at runtime rather than imported.
-DEP002 = ["fastexcel"]
-
 [tool.importlinter]
 root_package = "proptm3d"
 
 [[tool.importlinter.contracts]]
-name = "cli composes preparation and static serving"
+name = "CLI composes preparation, bundling, and static serving"
 type = "layers"
+exhaustive = true
+containers = ["proptm3d"]
 layers = [
-    "proptm3d.cli",
-    "proptm3d.prepare | proptm3d.webapp",
-    "proptm3d.structural_context_cache | proptm3d.web_visualizer",
-    "proptm3d.protein_data",
-    "proptm3d.prepared_data | proptm3d.alphafold_cache",
-    "proptm3d.data_loader | proptm3d.enrichment_loader | proptm3d.gsea_data | proptm3d.payload_io | proptm3d.pymol_exporter | proptm3d.structural_context | proptm3d.structure_fetcher | proptm3d.uniprot_cache",
-    "proptm3d.mudata_reader | proptm3d.uniprot_accession",
+    "cli",
+    "bundle | prepare | prepared_history | webapp",
+    "browser_assets | plot_backgrounds | prepared_root | structural_context_cache",
+    "alphafold_cache | gsea_data | prepared_data | structural_context",
+    "uniprot_cache | uniprot_accession",
 ]
-
-[[tool.importlinter.contracts]]
-name = "active statistics extraction does not depend on the legacy table loader"
-type = "forbidden"
-source_modules = ["proptm3d.prepared_data"]
-forbidden_modules = ["proptm3d.data_loader"]

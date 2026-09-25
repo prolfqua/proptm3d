@@ -8,6 +8,10 @@ test('prepared files resolve on the app origin', () => {
   assert.equal(servedUrl('tables/sites.parquet', base).href, `${base}tables/sites.parquet`)
   assert.equal(servedUrl(`${base}structures/model.cif.gz`, base).href,
     `${base}structures/model.cif.gz`)
+  assert.equal(servedUrl('../shared/structures/model.cif.gz', base).href,
+    'https://fixture.proptm3d.test/shared/structures/model.cif.gz')
+  assert.equal(servedUrl('shared/pae/model.json.gz', 'https://fixture.proptm3d.test/').href,
+    'https://fixture.proptm3d.test/shared/pae/model.json.gz')
 })
 
 test('prepared files cannot resolve to another origin or protocol', () => {

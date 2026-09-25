@@ -9,7 +9,14 @@ from typing import Annotated, Literal
 
 from cyclopts import App, Parameter
 
-from proptm3d import alphafold_cache, structural_context_cache, webapp
+from proptm3d import (
+    alphafold_cache,
+    prepared_history,
+    prepared_root,
+    structural_context_cache,
+    webapp,
+)
+from proptm3d import bundle as bundling
 from proptm3d import prepare as preparation
 
 Method = Literal["DPA", "DPU", "CF-DPU"]
@@ -31,8 +38,14 @@ app.command(prepare_app)
 app.command(cache_app)
 
 
-def _methods(method: Method | None) -> tuple[str, ...]:
-    return tuple(preparation.METHOD_SPECS) if method is None else (method,)
+def _preparation_target(first: str, folder: Path | None) -> tuple[Path, tuple[str, ...]]:
+    if folder is None:
+        return Path(first), tuple(preparation.METHOD_SPECS)
+    if first not in preparation.METHOD_SPECS:
+        choices = ", ".join(preparation.METHOD_SPECS)
+        msg = f"Unknown method {first!r}; choose {choices}"
+        raise ValueError(msg)
+    return folder, (first,)
 
 
 def _cache_state(status: dict, noun: str) -> str:
@@ -98,35 +111,36 @@ def _print_prepared(manifests: list[dict], output_dir: Path) -> None:
         if manifest["preparation"] == "gsea":
             print(f"  GSEA: {counts['gsea_terms']} terms across {counts['gsea_sources']} sources")
         print(f"  Folder: {output_root / prepared_method}")
-        print(
-            f"  Serve: proptm3d serve {prepared_method} "
-            f"--output-dir {shlex.quote(str(output_root))}"
-        )
+        print(f"  Serve: proptm3d serve {prepared_method} {shlex.quote(str(output_root))}")
 
 
 @prepare_app.command(name="stats")
 def prepare_stats(
-    method: Method | None = None,
+    folder_or_method: str,
+    folder: Path | None = None,
     *,
-    input_file: Annotated[Path, Parameter(name="--input")] = preparation.DEFAULT_INPUT,
-    output_dir: Annotated[Path, Parameter(name="--output-dir")] = preparation.DEFAULT_OUTPUT,
+    input_file: Annotated[Path, Parameter(name="--input")],
 ) -> None:
     """Prepare quantification and DEA Parquet tables, including cached structure context."""
+    output_dir, methods = _preparation_target(folder_or_method, folder)
     _require_input(input_file, "stats")
-    manifests = preparation.prepare_stats(input_file, output_dir, _methods(method))
+    manifests = preparation.prepare_stats(input_file, output_dir, methods)
+    prepared_history.register(output_dir)
     _print_prepared(manifests, output_dir)
 
 
 @prepare_app.command(name="gsea")
 def prepare_gsea(
-    method: Method | None = None,
+    folder_or_method: str,
+    folder: Path | None = None,
     *,
     input_file: Annotated[Path, Parameter(name="--input")],
-    output_dir: Annotated[Path, Parameter(name="--output-dir")] = preparation.DEFAULT_OUTPUT,
 ) -> None:
     """Prepare stats plus GSEA Parquet tables from a completed PTM delivery ZIP."""
+    output_dir, methods = _preparation_target(folder_or_method, folder)
     _require_input(input_file, "gsea")
-    manifests = preparation.prepare_gsea(input_file, output_dir, _methods(method))
+    manifests = preparation.prepare_gsea(input_file, output_dir, methods)
+    prepared_history.register(output_dir)
     _print_prepared(manifests, output_dir)
 
 
@@ -174,37 +188,94 @@ def clean_cache(organism: Organism) -> None:
 
 
 @app.command
-def clean(
-    method: Method | None = None,
-    *,
-    output_dir: Annotated[Path, Parameter(name="--output-dir")] = preparation.DEFAULT_OUTPUT,
-) -> None:
-    """Remove owned prepared method directories; keep the shared cache."""
-    for removed in preparation.clean_methods(output_dir, _methods(method)):
-        print(f"Removed {removed}")
+def clean(folder: Path) -> None:
+    """Remove one wholly owned prepared output folder; keep inputs and shared cache."""
+    removed = prepared_root.clean_prepared_root(folder)
+    prepared_history.forget(removed)
+    print(f"Removed {removed}")
 
 
 @app.command
 def serve(
-    method: Method | None = None,
+    target: str,
+    folder: Path | None = None,
     *,
-    output_dir: Annotated[Path, Parameter(name="--output-dir")] = preparation.DEFAULT_OUTPUT,
     port: int = 8000,
 ) -> None:
-    """Serve one prepared method through a static local file server."""
-    if method is None:
-        print(
-            "Choose one method to serve: DPA, DPU, or CF-DPU.\nFor example: proptm3d serve DPA",
-            file=sys.stderr,
-        )
-        raise SystemExit(2)
-    directory = (output_dir / method).resolve()
-    if not preparation.is_prepared(directory, method):
-        msg = (
-            f"No prepared {method} directory at {directory}; run 'proptm3d prepare stats {method}'"
-        )
+    """Serve all methods in a prepared root, one METHOD FOLDER, or a bundle ZIP."""
+    if folder is None:
+        path = Path(target)
+        if path.is_dir():
+            if path.is_symlink():
+                msg = f"Refusing to serve a symlinked prepared folder: {path}"
+                raise ValueError(msg)
+            methods = prepared_root.available_methods(path)
+            entries = {entry.name for entry in path.iterdir()}
+            if (
+                not methods
+                or entries != set(methods)
+                or any((path / method).is_symlink() for method in methods)
+            ):
+                msg = f"Not a prepared output folder: {path}"
+                raise ValueError(msg)
+            prepared_history.register(path)
+            webapp.serve(
+                path.resolve(),
+                port=port,
+                landing_page=bundling.method_chooser_html(path, methods),
+            )
+            return
+        if path.suffix.lower() != ".zip":
+            msg = "Pass a prepared FOLDER, METHOD FOLDER, or a proptm3d bundle.zip to serve"
+            raise ValueError(msg)
+        with bundling.extracted_bundle(path) as directory:
+            webapp.serve(directory, port=port)
+        return
+    if target not in preparation.METHOD_SPECS:
+        msg = f"Unknown method: {target}"
         raise ValueError(msg)
+    selected = folder / target
+    if folder.is_symlink() or selected.is_symlink():
+        msg = f"Refusing to serve a symlinked prepared folder: {selected}"
+        raise ValueError(msg)
+    directory = selected.resolve()
+    if not preparation.is_prepared(directory, target):
+        msg = f"No prepared {target} directory at {directory}"
+        raise ValueError(msg)
+    prepared_history.register(folder)
     webapp.serve(directory, port=port)
+
+
+@app.command
+def bundle(
+    *methods: Method,
+    input_dir: Annotated[Path | None, Parameter(name="--in")] = None,
+    output_file: Annotated[Path | None, Parameter(name="--out")] = None,
+    include_server: bool = True,
+) -> None:
+    """List prepared folders, or write a portable ZIP with local server launchers."""
+    if input_dir is None:
+        if methods or output_file is not None:
+            msg = "Pass --in FOLDER to bundle a method or all methods"
+            raise ValueError(msg)
+        folders = prepared_history.prepared_folders()
+        if not folders:
+            print("No prepared folders recorded yet.")
+        for folder in folders:
+            methods = prepared_root.available_methods(folder)
+            print(f"{folder}: {', '.join(methods) if methods else 'unavailable'}")
+        return
+    try:
+        output = bundling.bundle_prepared_root(
+            input_dir, methods or None, output_file, include_server=include_server
+        )
+    except FileExistsError as error:
+        print(f"{error}\nUse another --out path, or move the existing ZIP first.", file=sys.stderr)
+        raise SystemExit(2) from None
+    prepared_history.register(input_dir)
+    bundled = ", ".join(methods or prepared_root.available_methods(input_dir))
+    print(f"Bundled {bundled}")
+    print(f"  ZIP: {output} ({output.stat().st_size / 1024**3:.2f} GiB)")
 
 
 def main() -> None:

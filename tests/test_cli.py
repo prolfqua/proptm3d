@@ -5,10 +5,15 @@ import pytest
 from proptm3d import cli
 
 
-def test_cli_prepare_and_clean_select_methods(tmp_path, monkeypatch):
+@pytest.fixture(autouse=True)
+def isolated_prepared_history(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli.prepared_history, "history_path", lambda: tmp_path / "history.json")
+
+
+def test_cli_prepare_and_clean_select_folders(tmp_path, monkeypatch):
     calls = []
     (tmp_path / "PTM_statistics.h5mu").touch()
-    monkeypatch.chdir(tmp_path)
+    output = tmp_path / "viewer"
 
     def fake_prepare(input_file, output_dir, methods):
         calls.append(("prepare", input_file, output_dir, methods))
@@ -33,9 +38,9 @@ def test_cli_prepare_and_clean_select_methods(tmp_path, monkeypatch):
 
     monkeypatch.setattr(cli.preparation, "prepare_stats", fake_prepare)
     monkeypatch.setattr(
-        cli.preparation,
-        "clean_methods",
-        lambda output_dir, methods: calls.append(("clean", output_dir, methods)) or [],
+        cli.prepared_root,
+        "clean_prepared_root",
+        lambda folder: calls.append(("clean", folder)) or folder.resolve(),
     )
     with pytest.raises(SystemExit, match="0"):
         cli.app(
@@ -43,32 +48,31 @@ def test_cli_prepare_and_clean_select_methods(tmp_path, monkeypatch):
                 "prepare",
                 "stats",
                 "DPU",
+                str(output),
                 "--input",
                 str(tmp_path / "PTM_statistics.h5mu"),
-                "--output-dir",
-                str(tmp_path / "out"),
             ]
         )
     with pytest.raises(SystemExit, match="0"):
-        cli.app(["prepare", "stats"])
+        cli.app(["prepare", "stats", str(output), "--input", str(tmp_path / "PTM_statistics.h5mu")])
     with pytest.raises(SystemExit, match="0"):
-        cli.app(["clean", "CF-DPU"])
-    with pytest.raises(SystemExit, match="0"):
-        cli.app(["clean"])
+        cli.app(["clean", str(output)])
     assert calls[0][-1] == ("DPU",)
+    assert calls[0][2] == output
     assert calls[1][-1] == ("DPA", "DPU", "CF-DPU")
-    assert str(calls[1][1]) == "PTM_statistics.h5mu"
-    assert calls[2][-1] == ("CF-DPU",)
-    assert calls[3][-1] == ("DPA", "DPU", "CF-DPU")
+    assert calls[1][2] == output
+    assert calls[2] == ("clean", output)
+    assert cli.prepared_history.prepared_folders() == ()
 
 
-def test_cli_bare_help_and_serve_requires_method(capsys):
+def test_cli_bare_help_and_serve_requires_method_and_folder(capsys):
     with pytest.raises(SystemExit) as excinfo:
         cli.app([])
     assert excinfo.value.code == 0
     help_text = capsys.readouterr().out
     assert "prepare" in help_text
     assert "cache" in help_text
+    assert "bundle" in help_text
     with pytest.raises(SystemExit) as excinfo:
         cli.app(["serve"])
     assert excinfo.value.code != 0

@@ -6,7 +6,7 @@ This directory owns the static browser app only. Follow the [scenario plan](../.
 
 ## Setup
 
-Start from an already prepared `../output_3d/` with method directories; run `npm ci` before the commands below.
+Start from an explicitly chosen prepared output folder with method directories; run `npm ci` before the commands below.
 
 ## Commands
 
@@ -14,7 +14,7 @@ Start from an already prepared `../output_3d/` with method directories; run `npm
 npm run check
 npm test
 npm run build
-npm run deploy
+cd .. && make package-web
 ```
 
 ## Code style
@@ -27,7 +27,7 @@ The browser loads local Parquet tables and self-hosted libraries only. It must n
 
 ## Checklist
 
-Run the commands above and smoke DPA, DPU, and CF-DPU before handoff. Deployment may generate `data/plot_backgrounds.json` and its PNGs; it must not change the prepared tables or structures.
+Run the commands above and smoke DPA, DPU, and CF-DPU before handoff. Python preparation writes `data/plot_backgrounds.json` and its PNGs; browser development must not generate them. The checked-in browser build under `../src/proptm3d/browser_static/` must match the current TypeScript source.
 
 ## Examples
 

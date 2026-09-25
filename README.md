@@ -2,36 +2,50 @@
 
 `proptm3d` prepares phosphorylation quantification, DEA, structure context, and optional GSEA results as Parquet tables for the local browser application.
 
-## Install
+## Set up one analysis
 
-```bash
-uv sync --frozen
-```
+This is the main path for a **mouse DPA statistics analysis**. Run these commands from the repository root. Replace the input file and output folder paths with your own; use `HUMAN` instead of `MOUSE` for human data.
 
-## Commands
+1. Install the locked Python package once so the `proptm3d` command is available.
 
-Cache AlphaFold data once, then prepare either statistics or a completed GSEA delivery:
+   ```bash
+   uv sync --frozen
+   ```
 
-```bash
-uv run proptm3d cache structures MOUSE
-uv run proptm3d cache context MOUSE
-uv run proptm3d cache clean MOUSE    # remove only the MOUSE AlphaFold cache
-uv run proptm3d cache                # show commands and local cache availability
-uv run proptm3d prepare stats DPA
-uv run proptm3d prepare gsea DPA --input /path/to/PTM_complete.zip
-uv run proptm3d serve DPA          # http://127.0.0.1:8000/
-uv run proptm3d clean DPA          # remove only the prepared DPA package
-uv run proptm3d clean              # remove all three prepared packages
-```
+2. Cache AlphaFold models, PAE, and residue context for the organism; this can take substantial time and disk space, but is reused by later analyses.
 
-`prepare stats` reads `./PTM_statistics.h5mu` by default and also accepts a statistics delivery ZIP through `--input`. `prepare gsea` requires `--input` with a completed PTM delivery ZIP. Both commands accept DPA, DPU, or CF-DPU; omitting the method prepares all three. They write to `./output_3d` unless `--output-dir` is given. `serve` accepts `--port` and requires exactly one method. `clean` preserves the input, shared cache, and unrecognized directories.
+   ```bash
+   uv run proptm3d cache context MOUSE
+   ```
 
-The default `output_3d` is relative to the directory where you run the command, not to the input ZIP. `prepare` prints each method's absolute folder and its matching `serve` command. After deploying the browser build, `proptm3d serve DPA` serves only `output_3d/DPA` as the website root at `http://127.0.0.1:8000/`; choose DPU or CF-DPU to serve those folders instead.
+3. Convert the analysis h5mu into DPA Parquet tables, static plot backgrounds, and a browser app in the chosen output folder.
+
+   ```bash
+   uv run proptm3d prepare stats DPA /path/to/viewer --input /path/to/PTM_statistics.h5mu
+   ```
+
+4. Create a complete ZIP website for sharing; this does not need a prior `serve` command or npm. The ZIP includes Python 3 launchers for local use.
+
+   ```bash
+   uv run proptm3d bundle DPA --in /path/to/viewer --out /path/to/DPA.zip
+   ```
+
+5. Preview that same ZIP locally; the command extracts it temporarily and serves it over HTTP.
+
+   ```bash
+   uv run proptm3d serve /path/to/DPA.zip
+   ```
+
+Open `http://127.0.0.1:8000/` after step 5. A recipient can instead extract the ZIP and run `./serve.sh` on macOS/Linux or `serve.bat` on Windows, then open the same URL; Python 3 is required. To publish instead, extract the ZIP on a static HTTP/HTTPS server. The output folder is the root containing `DPA/`; no `output_3d` suffix is added. Once the package is installed and the organism cache is ready, **prepare and bundle are the only required commands**. Neither `serve` nor `bundle` installs packages, runs npm, or downloads browser libraries. For multiple methods, completed GSEA deliveries, cleanup, and deployment details, see the [quickstart](docs/quickstart.md) and [bundle guide](docs/bundles.md).
+
+To preview all prepared methods before bundling, run `proptm3d serve /path/to/viewer`. The server shows the same method chooser at `http://127.0.0.1:8000/` without changing the prepared folder or extracting a ZIP.
+
+For the current `o43037_FP24_AntjePhospho` example, [the fish script](examples/o43037_prepare_bundle.fish) prepares DPA, DPU, and CF-DPU and bundles them together using literal `~/data_analysis/...` paths. Run it with an active `.venv` using `fish examples/o43037_prepare_bundle.fish`; it does not run npm or `uv run` and will not overwrite an existing ZIP.
 
 The statistics delivery ZIP can be passed directly, for example:
 
 ```bash
-uv run proptm3d prepare stats DPA \
+uv run proptm3d prepare stats DPA /path/to/viewer \
   --input /path/to/PTM_HIF2a_mutant_vs_GFP_control_statistics.zip
 ```
 
@@ -59,14 +73,16 @@ Every `prepare stats` and `prepare gsea` run reads the completed cache and joins
 
 ## Generated package
 
-Each method has its own directory under `output_3d`:
+Each method has its own directory under the explicitly chosen prepared root:
 
 ```text
 DPA/
   index.html
   data/run.json
-  data/plot_backgrounds.json            # after browser deployment
-  data/plot_backgrounds/*.png            # after browser deployment
+  data/browser-assets.json
+  data/plot_backgrounds.json
+  data/plot_backgrounds/*.png
+  assets/*.js and assets/*.css
   tables/sites.parquet
   tables/site_stats.parquet
   tables/measurements.parquet
@@ -77,15 +93,18 @@ DPA/
   tables/gsea_terms.parquet               # prepare gsea only
   structures/                    # link to shared cached .cif.gz models
   pae/                           # links to the experiment models' cached PAE .json.gz
+  residue_context/               # links to referenced models' per-residue Parquet context
 ```
 
 The manifest records the method, contrasts, samples and conditions, data release, archive version, file paths, and coverage counts. Preparation writes to a temporary directory and replaces a method package only after the export completes.
 
-The site table retains every detected site, including those without an estimable effect. The statistics table uses `(protein_Id, site, contrast)` as its key. The DPU protein-only result rows are excluded from site statistics. The browser reads results and abundances from Parquet; no CBOR files are written to the served method directory. Deployment derives static black-point plot backgrounds from the results table.
+`proptm3d bundle METHOD [METHOD ...] --in FOLDER [--out FILE.zip]` produces a portable website with one or more selected methods; omit methods to include all prepared methods. One method opens directly at the ZIP root; multiple methods open behind a chooser page. The default ZIP name is `<folder>-METHOD.zip`, `<folder>-DPA-DPU.zip`, or `<folder>-all.zip` beside the prepared folder; an existing ZIP is never overwritten. Every bundle has a `shared/` folder containing each referenced structure and PAE file once, even when multiple methods use it. The bundler checks `data/browser-assets.json` against every packaged JavaScript/CSS file and does not preserve cache symlinks. Re-prepare older folders that lack the asset inventory or Python-generated plot backgrounds. Extract the ZIP onto a static HTTP/HTTPS site before opening it—`file://` and a ZIP download cannot run the browser app. Every ZIP includes `serve.py`, `serve.sh`, and `serve.bat`; after extraction run the launcher for your platform, then open `http://127.0.0.1:8000/`. This needs Python 3 on the recipient's machine but not proptm3d, pip, or npm. Pass `--no-include-server` to omit the three launcher files for a static-site-only ZIP. `proptm3d serve FILE.zip` does the extraction temporarily for local preview. See the [deployment guide](docs/bundles.md).
+
+The site table retains every detected site, including those without an estimable effect. The statistics table uses `(protein_Id, site, contrast)` as its key. The DPU protein-only result rows are excluded from site statistics. The browser reads results and abundances from Parquet; no CBOR files are written to the served method directory. Python preparation derives static black-point plot backgrounds from the results table.
 
 `site_structural_context.parquet` contains pLDDT, the two PAE-aware neighbor counts, and the `is_exposed`/`is_idr` flags at every catalogued site position. Its key includes the AlphaFold model ID because long-protein fragments may overlap; proptm3d preserves each matching model instead of choosing one silently. Sites without context and residue mismatches remain present with an explicit `mapping_status`.
 
-`matched` means only that the site was mapped to an AlphaFold residue with the same amino acid; it does not mean exposed, confident, or significant. `structures.parquet` carries a `pae_url` for each model whose PAE file is cached, and `pae/` links only those experiment models, not the organism-wide PAE cache.
+`matched` means only that the site was mapped to an AlphaFold residue with the same amino acid; it does not mean exposed, confident, or significant. `structures.parquet` carries `pae_url` and `context_url` for each model with cached annotations. The browser reads residue-context Parquet only when that protein is opened, allowing full-structure coloring by exposure and predicted IDR. UniProt feature coloring uses the prepared feature table and exact, sequence-matched coordinates. The right-side “How to read this” panel explains these labels in the app.
 
 In the browser, FDR and |log2FC| remain the only significance criteria. The independent **Exposure** (All, Exposed, Buried) and **Region** (All, IDR, Structured) filters default to All, which shows the same sites as before; unmatched sites stay visible and labelled. Choosing a category excludes sites without a matched classification. Both filters apply to the Find proteins tables and plots, the Protein detail table, 3D and N-to-C markers, and Site abundance choices, including under Show all sites. pLDDT is shown for interpretation and is not a filter.
 
@@ -110,3 +129,5 @@ make docs
 ```
 
 `make docs` builds the [Python documentation](docs/index.md) to `docs/_build/html/index.html` and treats warnings as errors. `make check` is the CI gate: Python formatting, imports, dependencies, tests, package build, browser checks and build, and documentation build. CI runs it on Python 3.13 and runs the Python tests separately on the supported minimum, Python 3.11. Tests stub external downloads. The active Python API and CLI prepare method-scoped packages from h5mu inputs; the retired Excel/CSV browser pipeline is no longer part of the package.
+
+The TypeScript source and pinned npm dependencies live in `web/`. Browser development uses `npm ci --prefix web` followed by `make package-web` to rebuild and copy compiled JS/CSS into the Python package. Normal analysis preparation, serving, and bundling use that packaged copy and do not invoke npm or Node.

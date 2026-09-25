@@ -1,11 +1,11 @@
 VENV_BIN := .venv/bin
-DIR ?= output_3d
+DIR ?=
 METHOD ?= DPA
 INPUT ?= PTM_statistics.h5mu
 PORT ?= 8000
 
 .DEFAULT_GOAL := help
-.PHONY: help sync format format-check lint deps test test-web build-web docs build check clean serve example
+.PHONY: help sync format format-check lint deps test test-web build-web package-web check-browser-assets test-deploy docs build check clean serve example
 
 help:  ## Show developer commands
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -39,22 +39,34 @@ test-web:  ## Type-check and test the TypeScript browser app
 build-web:  ## Build the deployable TypeScript browser app
 	npm --prefix web run build
 
+package-web: build-web  ## Update the browser assets included in the Python package
+	$(VENV_BIN)/python tools/sync_browser_assets.py
+
+check-browser-assets: build-web  ## Verify bundled browser files match the TypeScript build
+	$(VENV_BIN)/python tools/sync_browser_assets.py --check
+
+test-deploy: check-browser-assets  ## Test deployment and bundling against the built browser app
+	PROPTM3D_DEPLOY_SMOKE=1 $(VENV_BIN)/pytest -q tests/test_bundle.py::test_browser_deploy_accepts_explicit_prepared_root
+
 docs:  ## Build warning-free Python HTML documentation
 	$(VENV_BIN)/sphinx-build -b html -W --keep-going docs docs/_build/html
 
 build:  ## Build and validate source and wheel distributions
 	uv build
 	$(VENV_BIN)/twine check dist/*
+	$(VENV_BIN)/python tools/sync_browser_assets.py --check-wheel
 
 check:  ## Run every merge-blocking quality gate
 	uv lock --check
-	$(MAKE) format-check lint deps test test-web build-web docs build
+	$(MAKE) format-check lint deps test test-web test-deploy docs build
 
-serve:  ## Serve a prepared method (METHOD=DPA DIR=output_3d PORT=8000)
-	$(VENV_BIN)/proptm3d serve $(METHOD) --output-dir $(DIR) --port $(PORT)
+serve:  ## Serve a prepared method (METHOD=DPA DIR=/path/to/viewer PORT=8000)
+	@test -n "$(DIR)" || { echo "Set DIR to a prepared output folder"; exit 1; }
+	$(VENV_BIN)/proptm3d serve $(METHOD) $(DIR) --port $(PORT)
 
-example:  ## Prepare one method from statistics MuData (INPUT=PTM_statistics.h5mu)
-	$(VENV_BIN)/proptm3d prepare $(METHOD) --input $(INPUT) --output-dir $(DIR)
+example:  ## Prepare one method (DIR=/path/to/viewer INPUT=PTM_statistics.h5mu)
+	@test -n "$(DIR)" || { echo "Set DIR to a prepared output folder"; exit 1; }
+	$(VENV_BIN)/proptm3d prepare stats $(METHOD) $(DIR) --input $(INPUT)
 
 clean:  ## Remove generated build and quality artifacts
 	$(VENV_BIN)/python -c "import shutil; [shutil.rmtree(path, ignore_errors=True) for path in ('build', 'dist', '.pytest_cache', '.ruff_cache')]"

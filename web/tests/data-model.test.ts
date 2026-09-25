@@ -2,7 +2,7 @@ import { UNAVAILABLE_STRUCTURE } from "../src/structural.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { computeLogos } from "../src/logo.js";
-import { isSignificant, summarizeProteins } from "../src/summary.js";
+import { isSignificant, summarizeProteins, validCutoffs } from "../src/summary.js";
 import type { ProteinCatalogRow, SiteIndexRow } from "../src/types.js";
 
 function protein(id: string, measured: number): ProteinCatalogRow {
@@ -80,6 +80,13 @@ test("summary keeps measured proteins and scopes tested, significant, and direct
   assert.equal(isSignificant(row({ effect: 1, fdr: 0.01 }), cutoffs), false);
   assert.equal(isSignificant(row({ effect: 2, fdr: 0.05 }), cutoffs), false);
   assert.equal(isSignificant(row({ effect: null, fdr: 0.01 }), cutoffs), false);
+
+  const loosest = { fdr: 1, absEffect: 0 };
+  assert.equal(validCutoffs(loosest), true);
+  assert.equal(isSignificant(row({ effect: 0.72, fdr: 0.41 }), loosest), true);
+  assert.equal(validCutoffs({ fdr: 0, absEffect: 0 }), false);
+  assert.equal(validCutoffs({ fdr: 1.01, absEffect: 0 }), false);
+  assert.equal(validCutoffs({ fdr: 0.05, absEffect: -0.1 }), false);
 });
 
 test("logos use centered windows and report missing windows separately", () => {

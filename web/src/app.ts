@@ -1,6 +1,6 @@
 import { LitElement, html } from 'lit'
 import { TabulatorFull, type ColumnDefinition } from 'tabulator-tables'
-import { buildAbundanceFigure, buildNtoCFigure, buildProteinSiteFigure, buildVolcanoFigure, focusProteinTraces, proteinBackgroundPoints, renderFigure, validThresholds, type FigureSpec, type PlotBackground, type ProteinTraceUpdate } from './charts.js'
+import { buildAbundanceFigure, buildNtoCFigure, buildProteinSiteFigure, buildVolcanoFigure, focusProteinTraces, plotThresholds, proteinBackgroundPoints, renderFigure, type FigureSpec, type PlotBackground, type ProteinTraceUpdate } from './charts.js'
 import { loadAppData, loadProteinDetail } from './data.js'
 import { buildDetailRows, displayProteinDescription, selectDetailRows, type DetailRow, type EstimateType } from './detail.js'
 import { computeLogos } from './logo.js'
@@ -8,9 +8,10 @@ import { renderLogo } from './logo-view.js'
 import { buildPaeFigure, loadPae, paeBlockSize, paeModelFor, renderPae } from './pae.js'
 import { servedUrl } from './served-url.js'
 import { ALL_STRUCTURES, exposureLabel, isStructurallyFiltered, passesStructuralFilters, plddtLabel, regionLabel, structureDetail, structureLabel, type ExposureFilter, type RegionFilter, type StructuralFilters } from './structural.js'
-import { summarizeProteins, type ProteinSummary } from './summary.js'
+import { summarizeProteins, validCutoffs, type ProteinSummary } from './summary.js'
 import type { AppData, ProteinCatalogRow, ProteinDetail, SiteStructure, Thresholds } from './types.js'
 import type { SiteMarker, StructureViewer } from './structure.js'
+import type { StructureColoring } from './structure-colors.js'
 
 type MainView = 'find' | 'protein' | 'abundance'
 type FindView = 'all' | 'single' | 'sequlogos'
@@ -55,6 +56,7 @@ class PtmBrowserApp extends LitElement {
   private detailCache = new Map<string, ProteinDetail>()
   private findTable: TabulatorFull | null = null
   private detailTable: TabulatorFull | null = null
+  private abundanceTable: TabulatorFull | null = null
   private viewer: StructureViewer | null = null
   private mainView: MainView = 'find'
   private findView: FindView = 'all'
@@ -87,10 +89,22 @@ class PtmBrowserApp extends LitElement {
         <div class="brand"><div class="brand-mark">3D</div><div><h1>proptm3d</h1><p>Phosphosite structure explorer</p></div></div>
         <div class="run-meta"><span id="method-pill" class="pill method">Loading</span><span id="run-counts" class="pill"></span></div>
         <div id="app-status" class="status" role="status">Loading prepared data…</div>
+        <button id="guide-toggle" class="guide-toggle" type="button" aria-controls="reading-guide" aria-expanded="false" @click=${() => this.toggleGuide()}>How to read this</button>
       </header>
+      <aside id="reading-guide" class="reading-guide" aria-label="Data and color explanations" hidden @keydown=${(event: KeyboardEvent) => { if (event.key === 'Escape') this.toggleGuide(false) }}>
+        <div class="guide-heading"><h2>How to read this</h2><button type="button" aria-label="Close explanations" @click=${() => this.toggleGuide(false)}>×</button></div>
+        <dl>
+          <dt>Estimate</dt><dd>Observed uses measured site abundance. LOD imputed means a value below the limit of detection was imputed in the upstream analysis. All does not filter by estimate type; use Show all sites in Protein detail to include sites without a passing result.</dd>
+          <dt>Exposure</dt><dd>Predicted residue exposure from the AlphaFold model, using the PAE-aware StructureMap neighborhood. Exposed means at most five qualifying neighbors in a 12 Å, 70° partial sphere; buried means more than five. This is not an experimental measurement of solvent accessibility.</dd>
+          <dt>Region</dt><dd>IDR means predicted intrinsically disordered region; structured means not classified as IDR. The call uses smoothed PAE-aware neighbors in a 24 Å sphere. Sites without matched model context are neither category.</dd>
+          <dt>pLDDT</dt><dd>AlphaFold's per-residue local confidence score, 0–100; higher is more confident. It is not an exposure or disorder measurement.</dd>
+          <dt>UniProt features</dt><dd>Prepared UniProt domains, regions, motifs, repeats, transmembrane segments and signal peptides. Generic Chain intervals are not colored. Only exact coordinates on a sequence-matched protein are colored; unannotated residues are gray. More specific feature types take precedence where intervals overlap.</dd>
+          <dt>FDR and |log2FC|</dt><dd>A site passes only when FDR is strictly below the selected cutoff and absolute log2 fold change is strictly above the selected cutoff. These filters do not change the underlying abundance values.</dd>
+        </dl>
+      </aside>
       <div class="controls global-filters" role="group" aria-label="Site filters">
-        <div class="control threshold"><label for="fdr-cutoff">FDR &lt;</label><input id="fdr-cutoff" type="number" min="0" max="0.25" step="0.01" value="0.05" @input=${() => this.changeThresholds()} /></div>
-        <div class="control threshold"><label for="effect-cutoff">|log2FC| &gt;</label><input id="effect-cutoff" type="number" min="1" step="0.1" value="1" @input=${() => this.changeThresholds()} /></div>
+        <div class="control threshold"><label for="fdr-cutoff">FDR &lt;</label><input id="fdr-cutoff" type="number" min="0" max="1" step="0.01" value="0.05" @input=${() => this.changeThresholds()} /></div>
+        <div class="control threshold"><label for="effect-cutoff">|log2FC| &gt;</label><input id="effect-cutoff" type="number" min="0" step="0.1" value="1" @input=${() => this.changeThresholds()} /></div>
         <div class="control global-contrast"><label for="displayed-contrast">Displayed contrast</label><select id="displayed-contrast" @change=${(event: Event) => this.changeDisplayedContrast(event)}></select></div>
         <div class="control estimate"><label for="estimate-type">Estimate</label><select id="estimate-type" @change=${(event: Event) => this.changeEstimateType(event)}><option value="all">All</option><option value="observed">Observed</option><option value="lod_imputed">LOD imputed</option></select></div>
         <div class="control structural"><label for="exposure-filter">Exposure</label><select id="exposure-filter" title="Bludau prediction-aware exposure; sites without matched AlphaFold context are excluded unless All" @change=${() => this.changeStructuralFilters()}><option value="all">All</option><option value="exposed">Exposed</option><option value="buried">Buried</option></select></div>
@@ -153,7 +167,11 @@ class PtmBrowserApp extends LitElement {
                 <div id="structure-panel" class="card"><div class="view-note">Red up · blue down · gray no effect</div>
                   <div class="viewer-controls">
                     <div class="control"><label for="structure-representation">Representation</label><select id="structure-representation" @change=${() => this.changeStructureStyle()}><option value="cartoon">Cartoon</option><option value="backbone">Backbone trace</option><option value="surface">Surface</option></select></div>
-                    <div class="control"><label for="structure-coloring">Backbone color</label><select id="structure-coloring" @change=${() => this.changeStructureStyle()}><option value="plddt">pLDDT confidence</option><option value="position">N-to-C position</option><option value="neutral">Neutral</option></select></div>
+                    <div class="control"><label for="structure-coloring">Structure color</label><select id="structure-coloring" @change=${() => this.changeStructureStyle()}><option value="plddt">pLDDT confidence</option><option value="exposure">Exposure</option><option value="region">Region / IDR</option><option value="uniprot">UniProt features</option><option value="position">N-to-C position</option><option value="neutral">Neutral</option></select></div>
+                  </div>
+                  <div id="structure-color-legend" class="structure-color-legend">pLDDT: blue high confidence · yellow/orange lower confidence</div>
+                  <div id="uniprot-color-legend" class="structure-feature-legend" hidden>
+                    <span><i style="background:#d28b3b"></i>Motif</span><span><i style="background:#59a276"></i>Signal</span><span><i style="background:#c56551"></i>Transmembrane</span><span><i style="background:#4c9699"></i>Repeat</span><span><i style="background:#8866a6"></i>Region</span><span><i style="background:#526da7"></i>Domain</span><span><i style="background:#a9b6c3"></i>No exact feature</span>
                   </div>
                   <div id="structure-view" class="structure-host"></div><div id="structure-status" class="viewer-status" role="status"></div>
                 </div>
@@ -167,8 +185,10 @@ class PtmBrowserApp extends LitElement {
         </section>
         <section id="abundance-workspace" class="workspace" aria-label="Site abundance" hidden>
           <div id="abundance-content" hidden>
-            <div class="controls"><div class="control contrast"><label for="abundance-site">Site</label><select id="abundance-site" @change=${(event: Event) => this.changeAbundanceSite(event)}></select></div><span id="abundance-context" class="subtle"></span><span class="subtle">Dots are samples; missing values are not set to zero.</span></div>
-            <div class="card abundance-host"><div id="abundance-plot" class="plot-host"></div></div>
+            <div class="protein-grid">
+              <div class="card"><div class="card-title">Sites <small id="abundance-context"></small></div><div class="card-body flush"><div id="abundance-table" class="table-host detail-table"></div></div><div class="metric-note">Hover a row to show its abundance · click to open it in 3D.</div></div>
+              <div class="card abundance-host"><div class="view-note">Dots are samples; missing values are not set to zero.</div><div id="abundance-plot" class="plot-host"></div></div>
+            </div>
           </div>
           <p id="abundance-empty" class="empty-note">Choose a protein and site first.</p>
         </section>
@@ -177,6 +197,13 @@ class PtmBrowserApp extends LitElement {
 
   protected firstUpdated(): void { void this.start() }
 
+  private toggleGuide(open = this.el('#reading-guide').hidden): void {
+    this.el('#reading-guide').hidden = !open
+    this.el('#guide-toggle').setAttribute('aria-expanded', String(open))
+    if (open) this.el<HTMLButtonElement>('#reading-guide button').focus()
+    else this.el<HTMLButtonElement>('#guide-toggle').focus()
+  }
+
   disconnectedCallback(): void {
     super.disconnectedCallback()
     if (this.findPlotFrame !== null) window.cancelAnimationFrame(this.findPlotFrame)
@@ -184,6 +211,7 @@ class PtmBrowserApp extends LitElement {
     this.viewer?.dispose()
     this.findTable?.destroy()
     this.detailTable?.destroy()
+    this.abundanceTable?.destroy()
   }
 
   private el<T extends HTMLElement>(selector: string): T {
@@ -315,8 +343,8 @@ class PtmBrowserApp extends LitElement {
   private changeThresholds(): void {
     const fdr = Number(this.el<HTMLInputElement>('#fdr-cutoff').value)
     const absEffect = Number(this.el<HTMLInputElement>('#effect-cutoff').value)
-    if (!validThresholds(fdr, absEffect)) {
-      this.setStatus('Use an FDR in (0, 0.25] and a |log2FC| cutoff of at least 1.', true)
+    if (!validCutoffs({ fdr, absEffect })) {
+      this.setStatus('Use an FDR in (0, 1] and a |log2FC| cutoff of at least 0.', true)
       return
     }
     this.setStatus('Ready · local prepared data')
@@ -461,10 +489,11 @@ class PtmBrowserApp extends LitElement {
         const scatterUpdate: ProteinTraceUpdate = focusProteinTraces(figures.proteinSite, proteinId)
         if (proteinId !== null) {
           const rows = this.visibleSiteIndex()
+          const plotted = plotThresholds(this.thresholds)
           const volcanoPoints = proteinBackgroundPoints(rows, proteinId, this.displayedContrast,
-            'volcano', this.thresholds.fdr, this.thresholds.absEffect)
+            'volcano', plotted.fdr, plotted.absEffect)
           const scatterPoints = proteinBackgroundPoints(rows, proteinId, this.displayedContrast,
-            'protein-site', this.thresholds.fdr, this.thresholds.absEffect)
+            'protein-site', plotted.fdr, plotted.absEffect)
           volcanoUpdate.x[2] = volcanoPoints.x
           volcanoUpdate.y[2] = volcanoPoints.y
           volcanoUpdate.customdata[2] = volcanoPoints.customdata
@@ -503,7 +532,7 @@ class PtmBrowserApp extends LitElement {
         if (this.renderedFindPlotKey === key || this.findPlotTimer !== null) break
         const siteIndex = this.visibleSiteIndex()
         const contrast = this.displayedContrast
-        const thresholds = { ...this.thresholds }
+        const thresholds = plotThresholds(this.thresholds)
         const backgrounds = this.plotBackgrounds?.plots[contrast]
         if (!backgrounds) throw new Error(`Precomputed plot backgrounds are missing for ${contrast}.`)
         const volcano = buildVolcanoFigure(siteIndex, contrast, thresholds.fdr, thresholds.absEffect, backgrounds.volcano)
@@ -630,7 +659,6 @@ class PtmBrowserApp extends LitElement {
       this.selectedSite = rows[0]?.site ?? null
     }
     await this.refreshDetailTable(rows)
-    this.refreshSiteSelect(rows)
     await this.refreshDetailViews(loadStructure, rows)
     if (this.mainView === 'abundance') await this.refreshAbundance()
   }
@@ -644,7 +672,20 @@ class PtmBrowserApp extends LitElement {
       this.syncSelectedTableRow()
       return
     }
-    const columns: ColumnDefinition[] = [
+    this.detailTable = new TabulatorFull(this.el('#detail-table'), {
+      data: rows, columns: this.siteColumns(), columnDefaults: { headerWordWrap: true, headerTooltip: true },
+      index: 'row_id', layout: 'fitDataStretch',
+      initialSort: [{ column: 'posInProtein', dir: 'asc' }], placeholder: 'No sites match the current filters.',
+    })
+    this.detailTable.on('rowClick', (_event, row) => {
+      const value = row.getData() as DetailRow
+      this.selectSite(value.site)
+    })
+    this.detailTable.on('tableBuilt', () => this.syncSelectedTableRow())
+  }
+
+  private siteColumns(): ColumnDefinition[] {
+    return [
       { title: 'Site', field: 'site', frozen: true, width: 165, tooltip: true },
       { title: 'Pos.', field: 'posInProtein', sorter: 'number', hozAlign: 'right', width: 55 },
       { title: 'AA', field: 'modAA', width: 45 },
@@ -665,16 +706,6 @@ class PtmBrowserApp extends LitElement {
         sorter: 'number',
         formatter: (cell) => plddtLabel((cell.getData() as DetailRow).structure) },
     ]
-    this.detailTable = new TabulatorFull(this.el('#detail-table'), {
-      data: rows, columns, columnDefaults: { headerWordWrap: true, headerTooltip: true },
-      index: 'row_id', layout: 'fitDataStretch',
-      initialSort: [{ column: 'posInProtein', dir: 'asc' }], placeholder: 'No sites match the current filters.',
-    })
-    this.detailTable.on('rowClick', (_event, row) => {
-      const value = row.getData() as DetailRow
-      this.selectSite(value.site)
-    })
-    this.detailTable.on('tableBuilt', () => this.syncSelectedTableRow())
   }
 
   private setDetailCount(visible: DetailRow[], total: number): void {
@@ -726,7 +757,9 @@ class PtmBrowserApp extends LitElement {
       if (loadStructure) {
         this.el('#structure-status').textContent = 'Loading local AlphaFold model…'
         await this.viewer.load(detail.structures, this.siteMarkers(rows),
-          detail.protein.sequence_length ?? detail.protein.protein_length)
+          detail.protein.sequence_length ?? detail.protein.protein_length,
+          detail.residueContext,
+          detail.features.status === 'matched' ? detail.features.features : [])
       }
       if (id !== this.detailLoadId || this.detail !== detail) return
       this.viewer.setSites(this.siteMarkers(this.visibleDetailRows()), this.selectedSite, {
@@ -758,7 +791,9 @@ class PtmBrowserApp extends LitElement {
       const matrix = await loadPae(model.pae_url)
       if (id !== this.paeLoadId || this.detail !== detail) return
       plot.hidden = false
-      await renderPae(plot, buildPaeFigure(matrix, model, position, detail.protein.gene_name || detail.protein.protein_Id), (clicked) => {
+      const figure = buildPaeFigure(matrix, model, position, detail.protein.gene_name || detail.protein.protein_Id)
+      figure.layout.height = plot.clientHeight
+      await renderPae(plot, figure, (clicked) => {
         const block = paeBlockSize(matrix.size)
         const site = this.visibleDetailRows().find((row) => row.posInProtein !== null
           && row.posInProtein >= clicked && row.posInProtein < clicked + block)
@@ -777,7 +812,9 @@ class PtmBrowserApp extends LitElement {
       const figure = buildNtoCFigure(this.detail, this.detail.features, this.data.run.method,
         this.displayedContrast, this.selectedSite, this.thresholds.fdr, this.thresholds.absEffect,
         new Set(rows.map((row) => row.site)))
-      await renderFigure(this.el<HTMLDivElement>('#ntoc-plot'), figure, (point) => this.selectSite(point.site))
+      const plot = this.el<HTMLDivElement>('#ntoc-plot')
+      figure.layout.height = plot.clientHeight
+      await renderFigure(plot, figure, (point) => this.selectSite(point.site))
     } catch (error) {
       this.setStatus(error instanceof Error ? error.message : String(error), true)
     }
@@ -786,18 +823,45 @@ class PtmBrowserApp extends LitElement {
   private changeStructureStyle(): void {
     if (!this.viewer) return
     this.viewer.setRepresentation(this.el<HTMLSelectElement>('#structure-representation').value as 'cartoon' | 'backbone' | 'surface')
-    this.viewer.setColoring(this.el<HTMLSelectElement>('#structure-coloring').value as 'plddt' | 'position' | 'neutral')
+    const coloring = this.el<HTMLSelectElement>('#structure-coloring').value as StructureColoring
+    this.viewer.setColoring(coloring)
+    const legends: Record<StructureColoring, string> = {
+      plddt: 'pLDDT: blue high confidence · yellow/orange lower confidence',
+      exposure: 'Exposure: teal exposed · amber buried · gray unavailable',
+      region: 'Region: purple predicted IDR · blue structured · gray unavailable',
+      uniprot: 'UniProt: colored feature type · gray no exact feature or sequence mismatch',
+      position: 'N-to-C: blue N terminus → red C terminus',
+      neutral: 'Neutral: all residues gray',
+    }
+    this.el('#structure-color-legend').textContent = legends[coloring]
+    this.el('#uniprot-color-legend').hidden = coloring !== 'uniprot'
   }
 
-  private refreshSiteSelect(rows = this.visibleDetailRows()): void {
-    const select = this.el<HTMLSelectElement>('#abundance-site')
-    select.replaceChildren()
-    for (const row of rows) select.add(new Option(row.site, row.site))
-    if (this.selectedSite) select.value = this.selectedSite
+  /** Hovering a row previews its boxplot; leaving restores the selected site; clicking opens it in 3D. */
+  private refreshAbundanceTable(rows: DetailRow[]): void {
+    if (this.abundanceTable) {
+      void this.abundanceTable.replaceData(rows).then(() => this.syncSelectedAbundanceRow())
+      return
+    }
+    this.abundanceTable = new TabulatorFull(this.el('#abundance-table'), {
+      data: rows, columns: this.siteColumns(), columnDefaults: { headerWordWrap: true, headerTooltip: true },
+      index: 'site', layout: 'fitDataStretch',
+      initialSort: [{ column: 'posInProtein', dir: 'asc' }], placeholder: 'No sites match the current filters.',
+    })
+    this.abundanceTable.on('rowMouseEnter', (_event, row) => void this.renderAbundance((row.getData() as DetailRow).site))
+    this.abundanceTable.on('rowMouseLeave', () => void this.renderAbundance(this.selectedSite))
+    this.abundanceTable.on('rowClick', (_event, row) => {
+      this.selectSite((row.getData() as DetailRow).site)
+      this.showMain('protein')
+      this.showDetailView('structure')
+    })
+    this.abundanceTable.on('tableBuilt', () => this.syncSelectedAbundanceRow())
   }
 
-  private changeAbundanceSite(event: Event): void {
-    this.selectSite((event.target as HTMLSelectElement).value)
+  private syncSelectedAbundanceRow(): void {
+    if (!this.abundanceTable || !this.selectedSite) return
+    this.abundanceTable.deselectRow()
+    if (this.abundanceTable.getRow(this.selectedSite)) this.abundanceTable.selectRow(this.selectedSite)
   }
 
   private async refreshAbundance(): Promise<void> {
@@ -808,12 +872,16 @@ class PtmBrowserApp extends LitElement {
       ? 'No sites match the current filters.' : 'Choose a protein and site first.'
     if (!ready || this.mainView !== 'abundance') return
     this.el('#abundance-context').textContent = this.detail!.protein.gene_name || this.detail!.protein.protein_Id
-    this.refreshSiteSelect()
+    this.refreshAbundanceTable(this.visibleDetailRows())
+    await this.renderAbundance(this.selectedSite)
+  }
+
+  private async renderAbundance(site: string | null): Promise<void> {
+    if (!this.detail || !this.data || !site || this.mainView !== 'abundance') return
     try {
-      const figure = buildAbundanceFigure(this.detail!.evidence, this.data!.run.method,
-        this.selectedSite!, this.displayedContrast)
+      const figure = buildAbundanceFigure(this.detail.evidence, this.data.run.method, site, this.displayedContrast)
       const plot = this.el<HTMLDivElement>('#abundance-plot')
-      plot.style.height = `${figure.layout.height as number}px`
+      figure.layout.height = plot.clientHeight
       await renderFigure(plot, figure)
     } catch (error) {
       this.setStatus(error instanceof Error ? error.message : String(error), true)

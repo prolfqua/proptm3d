@@ -8,6 +8,7 @@ import {
   buildProteinSiteFigure,
   buildVolcanoFigure,
   focusProteinTraces,
+  plotThresholds,
   proteinBackgroundPoints,
   validThresholds,
 } from '../src/charts';
@@ -40,6 +41,11 @@ test('thresholds independently cap FDR and floor |log2FC|', () => {
   assert.equal(validThresholds(0.2501, 1), false);
   assert.equal(validThresholds(0.25, 0.99), false);
   assert.equal(validThresholds(0, 1), false);
+});
+
+test('dot plots colour at most FDR < 0.25 and |log2FC| > 1 sites', () => {
+  assert.deepEqual(plotThresholds({ fdr: 1, absEffect: 0 }), { fdr: 0.25, absEffect: 1 });
+  assert.deepEqual(plotThresholds({ fdr: 0.05, absEffect: 2 }), { fdr: 0.05, absEffect: 2 });
 });
 
 test('volcano uses the static black background and exposes only passing points by default', () => {

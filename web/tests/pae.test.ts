@@ -5,7 +5,7 @@ import { buildPaeFigure, loadPae, paeBlockSize, paeModelFor, parsePae, proteinPo
 import type { StructureFile } from '../src/types.js'
 
 function model(fragment: number, start: number, end: number | null, pae_url: string | null = `pae/F${fragment}.json.gz`): StructureFile {
-  return { file: `AF-P1-F${fragment}-model_v6.cif.gz`, fragment, version: 6, start, end, url: 'structures/x', pae_url }
+  return { file: `AF-P1-F${fragment}-model_v6.cif.gz`, fragment, version: 6, start, end, url: 'structures/x', pae_url, context_url: null }
 }
 
 const document = [{ predicted_aligned_error: [[0, 4, 30], [5, 0, 28], [29, 27, 0]], max_predicted_aligned_error: 31.75 }]

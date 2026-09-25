@@ -2,10 +2,23 @@
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.1.0] - Unreleased
 
 ### Changed
 
+- Site abundance lists the protein's sites in a table instead of a dropdown: hovering a row shows its boxplots, leaving restores the selected site, and clicking opens it in Protein detail's 3D structure. Protein detail and Site abundance split table and plots 50/50, and the 3D, N-to-C, PAE, and abundance plots fill the height of the table beside them.
+- The analysis overview now reports experimental groups and samples per group, counts samples once across methods, and explains that enriched and total measurements are paired instead of showing a context-free sample total.
+- The FDR and |log2FC| cutoffs now accept any FDR in (0, 1] and any |log2FC| of at least 0 for the protein tables, Protein detail, 3D and N-to-C markers, and Site abundance. The volcano and protein/site scatter still colour only sites with FDR below 0.25 and |log2FC| above 1 at most.
+- Protein detail now has a right-side explanation panel for estimate, exposure, predicted IDR, pLDDT, UniProt features, and significance thresholds. The 3D structure can be colored by residue exposure, predicted region, or prepared UniProt feature type in addition to confidence and position. Preparation serves selected residue-context Parquet files, and bundles share them across methods.
+- Multi-method bundles and direct prepared-root serving now open a complete, self-contained analysis overview with method descriptions, coverage counts, provenance, and links to each viewer.
+- `bundle` now reports an existing output ZIP with a concise next step instead of a Python traceback; it still never overwrites the ZIP.
+- Bundles now place referenced AlphaFold structures and PAE files once under `shared/`, including for single-method ZIPs; `bundle DPA DPU --in FOLDER` exports a selected subset with a chooser page and no duplicate model files.
+- `serve FOLDER` now previews every prepared method behind the all-method landing page without requiring a ZIP or modifying the prepared folder.
+- A runnable fish example now prepares and bundles all three methods for the `o43037_FP24_AntjePhospho` analysis without `uv run` or npm.
+- Bundles now include Python-standard-library local serving launchers for macOS/Linux and Windows by default, allowing an extracted ZIP to run without an installed proptm3d package; `--no-include-server` omits them for static-only deployment.
+- Preparation now writes the complete packaged browser app and Python-rendered volcano/scatter backgrounds, so `prepare` followed by `bundle` produces a working static ZIP without npm or an intermediate `serve`. `serve BUNDLE.zip` validates and temporarily extracts a single- or all-method ZIP for local preview.
+- Re-preparation now refuses unrecognized files and preserves an existing recovery backup; portable bundles verify the complete deployed browser asset inventory, and the deploy smoke test runs in the full quality gate. Retired Excel/CSV-only Python modules and dependencies have been removed.
+- Preparation and serving now require an explicit prepared output folder. Successful preparations appear in `bundle` history; `bundle` exports portable single-method or all-method ZIP websites, while `clean FOLDER` removes only a wholly owned prepared root.
 - The browser adds independent Exposure (Exposed, Buried) and Region (IDR, Structured) filters from the precomputed Bludau structural context. Both default to All, so the default view is unchanged; a chosen category applies to every Find and Protein detail view, including Show all sites, and excludes sites without matched context. Significance still depends only on FDR and |log2FC|.
 - Protein detail shows each site's exposure, region, and pLDDT, with mapping status and raw neighbor counts in tooltips, 3D marker tooltips, and the selected-site line; residue mismatches and unavailable context stay distinct from buried or structured sites.
 - Protein detail has a PAE tab beside 3D structure and N-to-C that lazily loads the displayed AlphaFold model's PAE heatmap with guides at the selected site; clicking a cell selects a site at that residue.

@@ -13,24 +13,23 @@ from zipfile import ZipFile
 
 import polars as pl
 
+from proptm3d import browser_assets, prepared_root
 from proptm3d.alphafold_cache import ARCHIVE_VERSION, cache_models, cached_pae_file
 from proptm3d.gsea_data import GseaTables, archive_gsea_members, read_gsea_tables
+from proptm3d.plot_backgrounds import write_plot_backgrounds
 from proptm3d.prepared_data import (
     METHOD_SPECS,
     SCHEMA_VERSION,
     PreparedTables,
     read_prepared_tables,
 )
+from proptm3d.prepared_root import MANIFEST_KIND
 from proptm3d.structural_context import (
     CONTEXT_METADATA,
     site_structural_context,
 )
 from proptm3d.structural_context_cache import load_precomputed_contexts
 from proptm3d.uniprot_cache import AnnotationTables, load_annotations
-
-MANIFEST_KIND = "proptm3d-prepared-method"
-DEFAULT_INPUT = Path("PTM_statistics.h5mu")
-DEFAULT_OUTPUT = Path("output_3d")
 
 
 @contextmanager
@@ -172,6 +171,18 @@ def _link_pae_files(staging: Path, pae_urls: list[str], cache_root: Path) -> Non
         (staging / "pae" / name).symlink_to(pae_cache / name)
 
 
+def _link_residue_contexts(
+    staging: Path, context_urls: list[str], context_files: dict[str, Path]
+) -> None:
+    """Expose selected model contexts without copying the entire proteome cache."""
+    directory = staging / "residue_context"
+    directory.mkdir()
+    by_name = {path.name: path for path in context_files.values()}
+    for url in set(context_urls):
+        path = by_name[Path(url).name]
+        (directory / path.name).symlink_to(path.resolve())
+
+
 def _write_method(
     staging: Path,
     tables: PreparedTables,
@@ -202,6 +213,11 @@ def _write_method(
             "end": model["end"],
             "url": f"structures/{model['file']}",
             "pae_url": _pae_url(model, cache_root),
+            "context_url": (
+                f"residue_context/{context_files[model['file']].name}"
+                if model["file"] in context_files
+                else None
+            ),
         }
         for protein in proteins.iter_rows(named=True)
         for model in models.get(protein["accession"], [])
@@ -218,10 +234,14 @@ def _write_method(
             "end": pl.Int64,
             "url": pl.String,
             "pae_url": pl.String,
+            "context_url": pl.String,
         },
     )
     structures_table.write_parquet(staging / "tables" / "structures.parquet")
     _link_pae_files(staging, structures_table["pae_url"].drop_nulls().to_list(), cache_root)
+    _link_residue_contexts(
+        staging, structures_table["context_url"].drop_nulls().to_list(), context_files
+    )
     structural_context = site_structural_context(tables.sites, context_files)
     structural_context.write_parquet(staging / "tables" / "site_structural_context.parquet")
     if gsea is not None:
@@ -304,24 +324,18 @@ def _write_method(
             "documents": gsea.documents,
         }
     (staging / "data" / "run.json").write_text(json.dumps(manifest, indent=2))
-    (staging / "index.html").write_text(
-        "<!doctype html><html lang='en'><meta charset='utf-8'>"
-        f"<title>proptm3d {tables.method}</title><h1>proptm3d {tables.method}</h1>"
-        "<p>Prepared data is available. "
-        "The interactive browser view is the next development step.</p>"
-        "<p><a href='data/run.json'>Run manifest</a></p></html>"
-    )
+    write_plot_backgrounds(staging, tables.stats, tables.contrasts)
+    browser_assets.install_browser_assets(staging)
     return manifest
 
 
 def _replace_directory(staging: Path, target: Path) -> None:
     backup = target.with_name(f".{target.name}.previous")
     if backup.exists():
-        shutil.rmtree(backup)
+        msg = f"Previous preparation backup needs inspection before retrying: {backup}"
+        raise FileExistsError(msg)
     if target.exists():
-        if not is_prepared(target):
-            msg = f"Refusing to overwrite an unrecognized directory: {target}"
-            raise ValueError(msg)
+        prepared_root.assert_owned_method(target, target.name)
         target.replace(backup)
     try:
         staging.replace(target)
@@ -338,7 +352,7 @@ def _prepare_from_mudata(
     expected_stage: str,
     preparation: str,
     gsea: dict[str, GseaTables],
-    output_dir: Path = DEFAULT_OUTPUT,
+    output_dir: Path,
     methods: tuple[str, ...] = tuple(METHOD_SPECS),
     cache_root: Path | None = None,
 ) -> list[dict]:
@@ -379,8 +393,8 @@ def _prepare_from_mudata(
 
 
 def prepare_stats(
-    input_file: Path = DEFAULT_INPUT,
-    output_dir: Path = DEFAULT_OUTPUT,
+    input_file: Path,
+    output_dir: Path,
     methods: tuple[str, ...] = tuple(METHOD_SPECS),
     cache_root: Path | None = None,
 ) -> list[dict]:
@@ -402,7 +416,7 @@ def prepare_stats(
 
 def prepare_gsea(
     input_file: Path,
-    output_dir: Path = DEFAULT_OUTPUT,
+    output_dir: Path,
     methods: tuple[str, ...] = tuple(METHOD_SPECS),
     cache_root: Path | None = None,
 ) -> list[dict]:
@@ -424,25 +438,4 @@ def prepare_gsea(
 
 def is_prepared(directory: Path, method: str | None = None) -> bool:
     """Check a method-owned manifest before serving, replacing, or cleaning."""
-    manifest = directory / "data" / "run.json"
-    if not manifest.is_file():
-        return False
-    data = json.loads(manifest.read_text())
-    return data.get("kind") == MANIFEST_KIND and (method is None or data.get("method") == method)
-
-
-def clean_methods(
-    output_dir: Path = DEFAULT_OUTPUT, methods: tuple[str, ...] = tuple(METHOD_SPECS)
-) -> list[Path]:
-    """Remove only method directories carrying our preparation manifest."""
-    removed = []
-    for method in methods:
-        target = output_dir / method
-        if not target.exists():
-            continue
-        if not is_prepared(target, method):
-            msg = f"Refusing to clean an unrecognized directory: {target}"
-            raise ValueError(msg)
-        shutil.rmtree(target)
-        removed.append(target)
-    return removed
+    return prepared_root.is_prepared(directory, method)
