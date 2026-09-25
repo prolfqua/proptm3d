@@ -119,6 +119,7 @@ export interface StructureFile {
 export interface ResidueContext {
   fragment: number;
   position: number;
+  plddt: number | null;
   is_exposed: boolean | null;
   is_idr: boolean | null;
 }

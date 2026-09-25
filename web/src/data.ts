@@ -224,7 +224,7 @@ export async function loadProteinDetail(
     },
     residueContext: residueRows.flat().map((row) => ({
       fragment: Number(row.fragment), position: Number(row.position),
-      is_exposed: row.is_exposed, is_idr: row.is_idr,
+      plddt: row.plddt, is_exposed: row.is_exposed, is_idr: row.is_idr,
     })),
   };
 }

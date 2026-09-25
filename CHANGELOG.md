@@ -6,6 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- The N-to-C protein plot now aligns residue-by-residue exposure, predicted region, and pLDDT confidence tracks beneath UniProt features, with exact values and AlphaFold fragment in hover labels.
 - Site abundance lists the protein's sites in a table instead of a dropdown: hovering a row shows its boxplots, leaving restores the selected site, and clicking opens it in Protein detail's 3D structure. Protein detail and Site abundance split table and plots 50/50, and the 3D, N-to-C, PAE, and abundance plots fill the height of the table beside them.
 - The analysis overview now reports experimental groups and samples per group, counts samples once across methods, and explains that enriched and total measurements are paired instead of showing a context-free sample total.
 - The FDR and |log2FC| cutoffs now accept any FDR in (0, 1] and any |log2FC| of at least 0 for the protein tables, Protein detail, 3D and N-to-C markers, and Site abundance. The volcano and protein/site scatter still colour only sites with FDR below 0.25 and |log2FC| above 1 at most.

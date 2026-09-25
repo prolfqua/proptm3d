@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { EXPOSURE_COLORS, FEATURE_COLORS, REGION_COLORS, UNANNOTATED_COLOR,
-  featureColor, residueColor } from '../src/structure-colors.js';
+import { EXPOSURE_COLORS, FEATURE_COLORS, PLDDT_COLORS, REGION_COLORS, UNANNOTATED_COLOR,
+  UNAVAILABLE_PLDDT_COLOR, featureColor, plddtColor, residueColor } from '../src/structure-colors.js';
 import type { ProteinFeature, ResidueContext } from '../src/types.js';
 
 const residue = (is_exposed: boolean | null, is_idr: boolean | null): ResidueContext =>
-  ({ fragment: 1, position: 10, is_exposed, is_idr });
+  ({ fragment: 1, position: 10, plddt: 80, is_exposed, is_idr });
 
 test('exposure and region colors distinguish both classes from missing context', () => {
   assert.equal(residueColor('exposure', residue(true, false)), EXPOSURE_COLORS.exposed);
@@ -14,6 +14,14 @@ test('exposure and region colors distinguish both classes from missing context',
   assert.equal(residueColor('region', residue(true, false)), REGION_COLORS.structured);
   assert.equal(residueColor('region', residue(null, null)), UNANNOTATED_COLOR);
   assert.equal(residueColor('exposure', undefined), UNANNOTATED_COLOR);
+});
+
+test('pLDDT track and 3D coloring share the AlphaFold confidence bands', () => {
+  assert.equal(plddtColor(null), UNAVAILABLE_PLDDT_COLOR);
+  assert.equal(plddtColor(49.9), PLDDT_COLORS.veryLow);
+  assert.equal(plddtColor(50), PLDDT_COLORS.low);
+  assert.equal(plddtColor(70), PLDDT_COLORS.confident);
+  assert.equal(plddtColor(90), PLDDT_COLORS.veryHigh);
 });
 
 test('UniProt coloring uses exact interval coordinates and specific feature priority', () => {

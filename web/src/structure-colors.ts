@@ -5,6 +5,9 @@ export type StructureColoring = 'plddt' | 'position' | 'neutral' | 'exposure' | 
 export const UNANNOTATED_COLOR = 0xa9b6c3;
 export const EXPOSURE_COLORS = { exposed: 0x008f83, buried: 0xcd8d2b } as const;
 export const REGION_COLORS = { idr: 0x8b5da6, structured: 0x3972af } as const;
+export const PLDDT_COLORS = { veryLow: 0xff7d45, low: 0xffdb13,
+  confident: 0x65cbf3, veryHigh: 0x0053d6 } as const;
+export const UNAVAILABLE_PLDDT_COLOR = 0x8b96a3;
 export const FEATURE_COLORS: Record<string, number> = {
   Motif: 0xd28b3b,
   Signal: 0x59a276,
@@ -23,6 +26,14 @@ export function residueColor(
   }
   return context?.is_idr === true ? REGION_COLORS.idr
     : context?.is_idr === false ? REGION_COLORS.structured : UNANNOTATED_COLOR;
+}
+
+export function plddtColor(value: number | null | undefined): number {
+  if (value === null || value === undefined || !Number.isFinite(value)) return UNAVAILABLE_PLDDT_COLOR;
+  if (value >= 90) return PLDDT_COLORS.veryHigh;
+  if (value >= 70) return PLDDT_COLORS.confident;
+  if (value >= 50) return PLDDT_COLORS.low;
+  return PLDDT_COLORS.veryLow;
 }
 
 /** More specific UniProt features take precedence where intervals overlap. */

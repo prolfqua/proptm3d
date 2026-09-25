@@ -249,6 +249,26 @@ test('N-to-C keeps measured sites without results on the baseline and hides none
     (trace.marker as { symbol: string[] }).symbol.includes('x')));
   assert.equal(markerPoints(buildNtoCFigure(protein, features, 'DPA', 'A_vs_B', null,
     0.05, 0, new Set())).length, 0);
+
+  const contextFigure = buildNtoCFigure(protein, features, 'DPA', 'A_vs_B', null,
+    0.05, 0, allSiteIds, [
+      { fragment: 2, position: 10, plddt: 97, is_exposed: false, is_idr: false },
+      { fragment: 1, position: 10, plddt: 64.2, is_exposed: true, is_idr: true },
+      { fragment: 1, position: 11, plddt: null, is_exposed: null, is_idr: null },
+      { fragment: 1, position: 12, plddt: 93.1, is_exposed: false, is_idr: false },
+    ]);
+  const tracks = contextFigure.data.filter((trace) => trace.yaxis === 'y3');
+  assert.deepEqual(tracks.map((trace) => trace.name), ['Exposure', 'Region', 'pLDDT']);
+  assert.ok(tracks.every((trace) => trace.type === 'heatmap' && trace.hoverongaps === false));
+  assert.deepEqual(tracks.map((trace) => (trace.z as Array<Array<number | null>>)[0][9]), [0, 1, 64.2]);
+  assert.deepEqual(tracks.map((trace) => (trace.z as Array<Array<number | null>>)[0][10]),
+    [null, null, null]);
+  assert.deepEqual(tracks.map((trace) => (trace.z as Array<Array<number | null>>)[0][11]), [1, 0, 93.1]);
+  assert.match((tracks[0].text as Array<Array<string | null>>)[0][9]!, /Exposed · AlphaFold fragment 1/);
+  assert.match((tracks[2].text as Array<Array<string | null>>)[0][9]!, /pLDDT 64.2/);
+  assert.deepEqual((contextFigure.layout.yaxis3 as { ticktext: string[] }).ticktext,
+    ['pLDDT', 'Region', 'Exposure']);
+  assert.ok((contextFigure.layout.height as number) > (figure.layout.height as number));
 });
 
 test('abundance uses aligned samples in method panels and leaves absent values null', () => {

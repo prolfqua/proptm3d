@@ -175,7 +175,7 @@ class PtmBrowserApp extends LitElement {
                   </div>
                   <div id="structure-view" class="structure-host"></div><div id="structure-status" class="viewer-status" role="status"></div>
                 </div>
-                <div id="ntoc-panel" class="card" hidden><div class="view-note">Sticks: method log2FC · dashed/open: imputed · ×: no estimate</div><div id="ntoc-plot" class="ntoc-host"></div></div>
+                <div id="ntoc-panel" class="card" hidden><div class="view-note">Sticks: method log2FC · dashed/open: imputed · ×: no estimate · Tracks: teal exposed / amber buried · purple IDR / blue structured · pLDDT blue high / orange low</div><div id="ntoc-plot" class="ntoc-host"></div></div>
                 <div id="pae-panel" class="card" hidden><div class="view-note">Predicted aligned error · dark: confident relative placement · light: uncertain relative placement · dotted: selected site</div><div id="pae-plot" class="pae-host"></div><div id="pae-status" class="viewer-status" role="status"></div></div>
               </div>
             </div>
@@ -811,9 +811,10 @@ class PtmBrowserApp extends LitElement {
     try {
       const figure = buildNtoCFigure(this.detail, this.detail.features, this.data.run.method,
         this.displayedContrast, this.selectedSite, this.thresholds.fdr, this.thresholds.absEffect,
-        new Set(rows.map((row) => row.site)))
+        new Set(rows.map((row) => row.site)), this.detail.residueContext)
       const plot = this.el<HTMLDivElement>('#ntoc-plot')
-      figure.layout.height = plot.clientHeight
+      plot.style.minHeight = `${figure.layout.height}px`
+      figure.layout.height = Math.max(plot.clientHeight, figure.layout.height as number)
       await renderFigure(plot, figure, (point) => this.selectSite(point.site))
     } catch (error) {
       this.setStatus(error instanceof Error ? error.message : String(error), true)

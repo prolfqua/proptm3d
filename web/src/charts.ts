@@ -3,11 +3,13 @@ import type {
   FeaturePayload,
   MeasuredSite,
   ProteinPayload,
+  ResidueContext,
   RunManifest,
   SiteIndexRow,
   SiteResult,
   Thresholds,
 } from './types';
+import { EXPOSURE_COLORS, PLDDT_COLORS, REGION_COLORS } from './structure-colors.js';
 
 export interface FigureSpec {
   data: Record<string, unknown>[];
@@ -455,6 +457,49 @@ function featureTraces(features: FeaturePayload | null, sequenceLength: number):
   return traces;
 }
 
+function hexColor(color: number): string {
+  return `#${color.toString(16).padStart(6, '0')}`;
+}
+
+function residueContextTraces(contexts: readonly ResidueContext[], plotLength: number): Record<string, unknown>[] {
+  const byPosition = new Map<number, ResidueContext>();
+  for (const context of [...contexts].sort((left, right) => left.fragment - right.fragment)) {
+    if (Number.isInteger(context.position) && context.position >= 1 && context.position <= plotLength
+      && !byPosition.has(context.position)) byPosition.set(context.position, context);
+  }
+  if (byPosition.size === 0) return [];
+  const positions = Array.from({ length: plotLength }, (_, index) => byPosition.get(index + 1));
+  const exposure = positions.map((row) => row?.is_exposed === null || !row ? null : row.is_exposed ? 0 : 1);
+  const region = positions.map((row) => row?.is_idr === null || !row ? null : row.is_idr ? 1 : 0);
+  const plddt = positions.map((row) => finite(row?.plddt) ? row.plddt : null);
+  const text = (label: (row: ResidueContext) => string, present: Array<number | null>) =>
+    positions.map((row, index) => row && present[index] !== null
+      ? `${label(row)} · AlphaFold fragment ${row.fragment}` : null);
+  const categoricalScale = (first: number, second: number) => [
+    [0, hexColor(first)], [0.4999, hexColor(first)],
+    [0.5, hexColor(second)], [1, hexColor(second)],
+  ];
+  const track = (name: string, row: number, values: Array<number | null>,
+    labels: Array<string | null>, colorscale: Array<Array<number | string>>, zmax: number) => ({
+    type: 'heatmap', name, xaxis: 'x', yaxis: 'y3', x0: 1, dx: 1, y0: row, dy: 1,
+    z: [values], text: [labels], zmin: 0, zmax, colorscale, showscale: false,
+    hoverongaps: false, ygap: 6, showlegend: false,
+    hovertemplate: 'Residue %{x}<br>%{text}<extra></extra>',
+  });
+  return [
+    track('Exposure', 2, exposure, text((row) => row.is_exposed ? 'Exposed' : 'Buried', exposure),
+      categoricalScale(EXPOSURE_COLORS.exposed, EXPOSURE_COLORS.buried), 1),
+    track('Region', 1, region, text((row) => row.is_idr ? 'Predicted IDR' : 'Structured', region),
+      categoricalScale(REGION_COLORS.structured, REGION_COLORS.idr), 1),
+    track('pLDDT', 0, plddt, text((row) => `pLDDT ${row.plddt?.toFixed(1)}`, plddt), [
+      [0, hexColor(PLDDT_COLORS.veryLow)], [0.4999, hexColor(PLDDT_COLORS.veryLow)],
+      [0.5, hexColor(PLDDT_COLORS.low)], [0.6999, hexColor(PLDDT_COLORS.low)],
+      [0.7, hexColor(PLDDT_COLORS.confident)], [0.8999, hexColor(PLDDT_COLORS.confident)],
+      [0.9, hexColor(PLDDT_COLORS.veryHigh)], [1, hexColor(PLDDT_COLORS.veryHigh)],
+    ], 100),
+  ];
+}
+
 /** Visible measured sites without a result or finite effect appear as baseline markers. */
 export function buildNtoCFigure(
   protein: ProteinPayload,
@@ -465,6 +510,7 @@ export function buildNtoCFigure(
   fdrCutoff: number,
   fcCutoff: number,
   visibleSiteIds: ReadonlySet<string>,
+  residueContext: readonly ResidueContext[] = [],
 ): FigureSpec {
   const results = new Map(protein.results.filter((row) => row.contrast === contrast)
     .map((row) => [row.site, row]));
@@ -482,7 +528,8 @@ export function buildNtoCFigure(
       };
     });
   const canonicalLength = protein.protein.sequence_length ?? protein.protein.protein_length ?? 0;
-  const maxPosition = Math.max(0, ...sites.map((site) => site.position));
+  const maxPosition = Math.max(0, ...sites.map((site) => site.position),
+    residueContext.reduce((max, row) => Math.max(max, row.position), 0));
   const plotLength = Math.max(canonicalLength, maxPosition, 1);
   const finiteEffects = sites.flatMap((site) => finite(site.effect) ? [site.effect] : []);
   const proteinEffect = method === 'DPA'
@@ -492,15 +539,19 @@ export function buildNtoCFigure(
   const maxAbsEffect = Math.max(1, ...finiteEffects.map(Math.abs));
   const labelSites = sites.filter((site) => significanceMark(site.result?.fdr) !== '');
   const featureData = featureTraces(features, canonicalLength);
+  const contextData = residueContextTraces(residueContext, plotLength);
+  const hasContext = contextData.length > 0;
   const layout = baseLayout(`${protein.protein.gene_name ?? protein.protein.protein_Id} · N to C`,
-    featureData.length > 0 ? 500 : 380);
-  layout.margin = { l: 75, r: 30, t: 62, b: 56 };
+    hasContext ? 760 : featureData.length > 0 ? 500 : 380);
+  layout.margin = { l: hasContext ? 120 : 75, r: 30, t: 62, b: 56 };
   layout.xaxis = {
     title: { text: 'Protein position (residue)' }, range: [-0.015 * plotLength, plotLength * 1.015],
     gridcolor: COLORS.grid, zeroline: false,
   };
   layout.yaxis = {
-    title: { text: 'Method log2 fold change' }, domain: featureData.length > 0 ? [0.37, 1] : [0, 1],
+    title: { text: 'Method log2 fold change' },
+    domain: hasContext ? [featureData.length > 0 ? 0.51 : 0.36, 1]
+      : featureData.length > 0 ? [0.37, 1] : [0, 1],
     range: [-maxAbsEffect * 1.18, maxAbsEffect * 1.18], gridcolor: COLORS.grid,
     zerolinecolor: COLORS.baseline,
   };
@@ -520,8 +571,16 @@ export function buildNtoCFigure(
     const usedTypes = FEATURE_TYPES.filter((type) => featureData.some((trace) =>
       (trace.line as Record<string, unknown>).color === FEATURE_COLORS[type]));
     layout.yaxis2 = {
-      title: { text: 'UniProt features' }, domain: [0, 0.23], range: [-0.8, FEATURE_TYPES.length - 0.2],
+      title: { text: 'UniProt features' }, domain: hasContext ? [0.28, 0.42] : [0, 0.23],
+      range: [-0.8, FEATURE_TYPES.length - 0.2],
       tickvals: usedTypes.map((type) => FEATURE_TYPES.indexOf(type)), ticktext: usedTypes,
+      showgrid: false, zeroline: false, fixedrange: true,
+    };
+  }
+  if (hasContext) {
+    layout.yaxis3 = {
+      domain: [0.03, 0.2], range: [-0.5, 2.5],
+      tickvals: [0, 1, 2], ticktext: ['pLDDT', 'Region', 'Exposure'],
       showgrid: false, zeroline: false, fixedrange: true,
     };
   }
@@ -537,7 +596,7 @@ export function buildNtoCFigure(
   }
   if (featureData.length === 0) {
     annotations.push({
-      x: 1, y: -0.18, xref: 'paper', yref: 'paper', xanchor: 'right', showarrow: false,
+      x: 1, y: hasContext ? 0.27 : -0.18, xref: 'paper', yref: 'paper', xanchor: 'right', showarrow: false,
       text: features?.status === 'matched' ? 'No displayed UniProt features' : `UniProt annotation: ${features?.status ?? 'unavailable'}`,
       font: { size: 11, color: COLORS.muted },
     });
@@ -552,7 +611,7 @@ export function buildNtoCFigure(
   }
   layout.annotations = annotations;
   const traces = nToCSiteTraces(sites, contrast, protein.protein.protein_Id, selectedSite);
-  return { data: [...traces, ...featureData], layout };
+  return { data: [...traces, ...featureData, ...contextData], layout };
 }
 
 /** Every sample stays in its condition group; absent values remain null. */

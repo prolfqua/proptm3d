@@ -9,7 +9,7 @@ import {
 } from '3dmol/build/3Dmol.es6.js';
 import { servedUrl } from './served-url.js';
 import { structureLabel } from './structural.js';
-import { featureColor, residueColor, UNANNOTATED_COLOR, type StructureColoring } from './structure-colors.js';
+import { featureColor, plddtColor, residueColor, UNANNOTATED_COLOR, type StructureColoring } from './structure-colors.js';
 import type { ProteinFeature, ResidueContext, SiteStructure } from './types.js';
 
 export type StructureRepresentation = 'cartoon' | 'backbone' | 'surface';
@@ -60,15 +60,6 @@ interface LoadedModel {
 const DEFAULT_CUTOFFS: StructureCutoffs = { fdr: 0.05, minAbsoluteEffect: 0 };
 const NEUTRAL_COLOR = 0xa9b6c3;
 const NO_EFFECT_COLOR = 0x8b96a3;
-
-function plddtColor(value: number | undefined): number {
-  if (value === undefined || !Number.isFinite(value)) return NO_EFFECT_COLOR;
-  if (value >= 90) return 0x0053d6;
-  if (value >= 70) return 0x65cbf3;
-  if (value >= 50) return 0xffdb13;
-  return 0xff7d45;
-}
-
 function positionColor(position: number, sequenceLength: number): number {
   const fraction = Math.max(0, Math.min(1, (position - 1) / Math.max(1, sequenceLength - 1)));
   const hue = 220 * (1 - fraction);
