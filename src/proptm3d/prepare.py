@@ -9,13 +9,19 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import quote
-from zipfile import ZipFile
+from zipfile import ZipFile, ZipInfo
 
+import h5py
 import polars as pl
 
 from proptm3d import browser_assets, prepared_root
 from proptm3d.alphafold_cache import ARCHIVE_VERSION, cache_models, cached_pae_file
-from proptm3d.gsea_data import GseaTables, archive_gsea_members, read_gsea_tables
+from proptm3d.gsea_data import (
+    GseaTables,
+    archive_gsea_members,
+    artifact_key,
+    read_gsea_tables,
+)
 from proptm3d.plot_backgrounds import write_plot_backgrounds
 from proptm3d.prepared_data import (
     METHOD_SPECS,
@@ -33,25 +39,55 @@ from proptm3d.uniprot_cache import AnnotationTables, load_annotations
 
 
 @contextmanager
-def _statistics_source(input_file: Path, output_dir: Path) -> Iterator[Path]:
+def _statistics_source(input_file: Path, output_dir: Path) -> Iterator[tuple[Path, str]]:
     if input_file.suffix.lower() != ".zip":
-        yield input_file
+        with h5py.File(input_file) as handle:
+            stage = handle["uns/prophosqua/stage"].asstr()[()]
+        if stage not in {"PTM_statistics", "PTM_results"}:
+            msg = f"Expected a statistics-bearing PTM MuData stage, found {stage}"
+            raise ValueError(msg)
+        yield input_file, stage
         return
 
+    stages = {"PTM_statistics.h5mu": "PTM_statistics", "PTM_results.h5mu": "PTM_results"}
     with ZipFile(input_file) as archive:
         members = [
             item
             for item in archive.infolist()
-            if not item.is_dir() and Path(item.filename).name == "PTM_statistics.h5mu"
+            if not item.is_dir() and Path(item.filename).name in stages
         ]
         if len(members) != 1:
-            msg = f"Expected exactly one PTM_statistics.h5mu in {input_file}; found {len(members)}"
+            msg = (
+                f"Expected exactly one PTM_statistics.h5mu or PTM_results.h5mu in "
+                f"{input_file}; found {len(members)}"
+            )
             raise ValueError(msg)
         with tempfile.TemporaryDirectory(prefix=".statistics-", dir=output_dir) as temporary:
-            statistics_file = Path(temporary) / "PTM_statistics.h5mu"
+            name = Path(members[0].filename).name
+            statistics_file = Path(temporary) / name
             with archive.open(members[0]) as source, statistics_file.open("wb") as target:
                 shutil.copyfileobj(source, target)
-            yield statistics_file
+            yield statistics_file, stages[name]
+
+
+def _gsea_member_checksums(
+    results_file: Path,
+    members_by_method: dict[str, list[ZipInfo]],
+) -> dict[str, str]:
+    expected = {}
+    with h5py.File(results_file) as handle:
+        namespace = handle["uns/prophosqua"]
+        recorded_files = namespace["enrichment_files"]
+        recorded_checksums = namespace["enrichment_sha256"]
+        for method, members in members_by_method.items():
+            for member in members:
+                key = artifact_key(method, member)
+                relative = recorded_files[key].asstr()[()]
+                if member.filename != relative and not member.filename.endswith(f"/{relative}"):
+                    msg = f"GSEA artifact path does not match PTM_results.h5mu: {member.filename}"
+                    raise ValueError(msg)
+                expected[member.filename] = recorded_checksums[key].asstr()[()]
+    return expected
 
 
 @contextmanager
@@ -84,8 +120,14 @@ def _gsea_source(
             results_file = Path(temporary) / "PTM_results.h5mu"
             with archive.open(result_members[0]) as source, results_file.open("wb") as target:
                 shutil.copyfileobj(source, target)
+            expected_checksums = _gsea_member_checksums(results_file, members_by_method)
             gsea = {
-                method: read_gsea_tables(archive, members_by_method[method], method)
+                method: read_gsea_tables(
+                    archive,
+                    members_by_method[method],
+                    method,
+                    expected_checksums,
+                )
                 for method in methods
             }
             yield results_file, gsea
@@ -389,6 +431,7 @@ def _prepare_from_mudata(
             )
             _replace_directory(staging, output_dir / item.method)
             manifests.append(manifest)
+    prepared_root.write_method_chooser(output_dir)
     return manifests
 
 
@@ -402,10 +445,10 @@ def prepare_stats(
     if not input_file.is_file():
         raise FileNotFoundError(input_file)
     output_dir.mkdir(parents=True, exist_ok=True)
-    with _statistics_source(input_file, output_dir) as statistics_file:
+    with _statistics_source(input_file, output_dir) as (statistics_file, stage):
         return _prepare_from_mudata(
             statistics_file,
-            "PTM_statistics",
+            stage,
             "stats",
             {},
             output_dir,

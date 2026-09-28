@@ -1,8 +1,10 @@
+<!-- Managed by agent: keep sections and order; edit content, not structure. Last updated: 2026-09-28 -->
+
 # proptm3d TypeScript frontend
 
 ## Overview
 
-This directory owns the static browser app only. Follow the [scenario plan](../../TODO/proptm3d/TODO_no_enrichment_browser_app.md) and [build instructions](README.md). Python `prepare`, cache, CLI, and `serve` are separate from routine UI changes; coordinate with `prepare` when the prepared-data contract changes.
+This directory owns the static browser app only. Follow the current [browser behaviour](../docs/browser.md), [prepared-data contract](../docs/data.md), and [build instructions](README.md). Python `prepare`, cache, CLI, and `serve` are separate from routine UI changes; coordinate with `prepare` when the prepared-data contract changes.
 
 ## Setup
 

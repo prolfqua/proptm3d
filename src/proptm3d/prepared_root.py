@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import re
 import shutil
+from collections import Counter
+from html import escape
 from pathlib import Path, PurePosixPath
 
 import polars as pl
@@ -14,6 +16,20 @@ from proptm3d.structural_context import CONTEXT_ALGORITHM_VERSION
 
 MANIFEST_KIND = "proptm3d-prepared-method"
 ASSET_NAME = re.compile(r"[A-Za-z0-9._-]+-[A-Za-z0-9_-]+\.(?:js|css)\Z")
+METHOD_DESCRIPTIONS = {
+    "DPA": (
+        "Differential PTM abundance",
+        "Tests whether phosphosite intensity changes between conditions.",
+    ),
+    "DPU": (
+        "Differential PTM usage",
+        "Tests whether site intensity changes relative to total protein abundance.",
+    ),
+    "CF-DPU": (
+        "Correct-first DPU",
+        "Tests protein-corrected phosphosite abundance between conditions.",
+    ),
+}
 
 
 def is_prepared(directory: Path, method: str | None = None) -> bool:
@@ -28,6 +44,68 @@ def is_prepared(directory: Path, method: str | None = None) -> bool:
 def available_methods(root: Path) -> tuple[str, ...]:
     """Return the methods with valid preparation manifests under one root."""
     return tuple(method for method in METHOD_SPECS if is_prepared(root / method, method))
+
+
+def method_chooser_html(root: Path, methods: tuple[str, ...]) -> str:
+    """Render the self-contained overview for a prepared root or multi-method bundle."""
+    manifests = [
+        json.loads((root / method / "data" / "run.json").read_text()) for method in methods
+    ]
+    rows = []
+    for method, manifest in zip(methods, manifests, strict=True):
+        title, description = METHOD_DESCRIPTIONS[method]
+        counts = manifest["counts"]
+        rows.append(
+            "<tr>"
+            f'<th scope="row">{escape(method)}'
+            f'<span class="method-detail">{escape(title)} — {escape(description)}</span></th>'
+            f'<td class="number">{counts["proteins"]:,}</td>'
+            f'<td class="number">{counts["measured_sites"]:,}</td>'
+            f'<td class="number">{counts["complete_result_sites"]:,}</td>'
+            f'<td class="number">{len(manifest["contrasts"]):,}</td>'
+            f'<td><a class="open" href="{escape(method, quote=True)}/index.html"'
+            f' aria-label="Open {escape(method, quote=True)} viewer">Open viewer →</a></td>'
+            "</tr>"
+        )
+    contrasts = {name for manifest in manifests for name in manifest["contrasts"]}
+    sample_groups = {
+        sample["sample"]: sample["condition"]
+        for manifest in manifests
+        for sample in manifest["samples"]
+    }
+    group_counts = Counter(sample_groups.values())
+    sample_summary = " + ".join(str(count) for _, count in sorted(group_counts.items()))
+    group_detail = " · ".join(
+        f"{escape(group)}: {count}" for group, count in sorted(group_counts.items())
+    )
+    proteomes = ", ".join(sorted({manifest["proteome"] for manifest in manifests}))
+    uniprot_releases = ", ".join(sorted({m["uniprot_release"] for m in manifests}))
+    alphafold_versions = ", ".join(sorted({m["alphafold_archive_version"] for m in manifests}))
+    provenance = (
+        f"Proteome {proteomes} · UniProt {uniprot_releases} · AlphaFold {alphafold_versions}"
+    )
+    template = Path(__file__).with_name("bundle_server").joinpath("overview.html").read_text()
+    return (
+        template.replace("{{GROUP_COUNT}}", str(len(group_counts)))
+        .replace("{{GROUP_LABEL}}", "Group" if len(group_counts) == 1 else "Groups")
+        .replace("{{CONTRAST_COUNT}}", str(len(contrasts)))
+        .replace("{{CONTRAST_LABEL}}", "Contrast" if len(contrasts) == 1 else "Contrasts")
+        .replace("{{SAMPLE_SUMMARY}}", sample_summary)
+        .replace("{{GROUP_DETAIL}}", group_detail)
+        .replace("{{PROVENANCE}}", escape(provenance))
+        .replace("{{METHOD_ROWS}}", "\n".join(rows))
+    )
+
+
+def write_method_chooser(root: Path) -> Path:
+    """Write the generated root entry page for every currently prepared method."""
+    methods = available_methods(root)
+    if not methods:
+        msg = f"No prepared methods in {root}"
+        raise ValueError(msg)
+    destination = root / "index.html"
+    destination.write_text(method_chooser_html(root, methods))
+    return destination
 
 
 def _relative_url(url: str, prefix: str) -> str:
@@ -245,7 +323,18 @@ def clean_prepared_root(root: Path) -> Path:
         msg = f"Refusing to clean a broad directory: {canonical}"
         raise ValueError(msg)
     methods = available_methods(root)
-    if not methods or {entry.name for entry in root.iterdir()} != set(methods):
+    expected = set(methods)
+    index = root / "index.html"
+    if index.exists():
+        if (
+            index.is_symlink()
+            or not index.is_file()
+            or index.read_text() != method_chooser_html(root, methods)
+        ):
+            msg = f"Refusing to clean a folder with an unrecognized index: {root}"
+            raise ValueError(msg)
+        expected.add("index.html")
+    if not methods or {entry.name for entry in root.iterdir()} != expected:
         msg = f"Refusing to clean a folder with unrecognized contents: {root}"
         raise ValueError(msg)
     for method in methods:

@@ -25,6 +25,7 @@ def isolated_prepared_history(tmp_path, monkeypatch):
     monkeypatch.setattr(
         prepared_history, "history_path", lambda: tmp_path / "state" / "folders.json"
     )
+    monkeypatch.setattr(cli.upload_cache, "cache_path", lambda: tmp_path / "state" / "uploads.json")
 
 
 @pytest.fixture
@@ -335,28 +336,35 @@ def test_serve_bundle_extracts_temporarily(prepared_folder, monkeypatch, method)
     assert not served[0].exists()
 
 
-def test_serve_prepared_root_uses_same_landing_page_without_creating_files(
-    prepared_folder, monkeypatch
-):
+def test_serve_prepared_root_requires_index_from_preparation(prepared_folder, monkeypatch):
     root, _, add_method = prepared_folder
     add_method("DPA")
     add_method("DPU")
     add_method("CF-DPU")
+
+    monkeypatch.setattr(cli.webapp, "serve", pytest.fail)
+
+    with pytest.raises(ValueError, match="Not a prepared output folder"):
+        cli.serve(str(root), port=8123)
+
+
+def test_serve_prepared_root_serves_index_written_by_preparation(prepared_folder, monkeypatch):
+    root, _, add_method = prepared_folder
+    add_method("DPA")
+    add_method("DPU")
+    index = prepared_root.write_method_chooser(root)
     served = []
 
-    def capture_server(directory, port, *, landing_page):
-        served.append((directory, port, landing_page))
+    def capture_server(directory, port):
+        served.append((directory, port))
 
     monkeypatch.setattr(cli.webapp, "serve", capture_server)
-    with pytest.raises(SystemExit, match="0"):
-        cli.app(["serve", str(root), "--port", "8123"])
-    assert len(served) == 1
-    directory, port, landing_page = served[0]
-    assert directory == root.resolve()
-    assert port == 8123
-    assert landing_page == bundle.method_chooser_html(root, ("DPA", "DPU", "CF-DPU"))
-    assert not (root / "index.html").exists()
-    assert prepared_history.prepared_folders() == (root.resolve(),)
+
+    cli.serve(str(root), port=8123)
+
+    assert index.is_file()
+    assert served == [(root.resolve(), 8123)]
+    assert prepared_history.prepared_folders() == ()
 
 
 def test_overview_counts_samples_once_across_methods_and_labels_groups(prepared_folder):
@@ -573,6 +581,27 @@ def test_bundle_cli_selects_multiple_methods(prepared_folder, capsys):
         assert "CF-DPU/index.html" not in archive.namelist()
 
 
+def test_bundle_cli_accepts_prepared_root_and_writes_all_method_entry_page(prepared_folder, capsys):
+    root, _, add_method = prepared_folder
+    for method in ("DPA", "DPU", "CF-DPU"):
+        add_method(method)
+
+    with pytest.raises(SystemExit, match="0"):
+        cli.app(["bundle", str(root)])
+
+    assert "Bundled DPA, DPU, CF-DPU" in capsys.readouterr().out
+    with ZipFile(root.with_name("viewer-all.zip")) as archive:
+        assert json.loads(archive.read("bundle.json"))["methods"] == [
+            "DPA",
+            "DPU",
+            "CF-DPU",
+        ]
+        entry_page = archive.read("index.html").decode()
+        assert all(
+            f'href="{method}/index.html"' in entry_page for method in ("DPA", "DPU", "CF-DPU")
+        )
+
+
 def test_bundle_cli_reports_existing_zip_without_traceback(prepared_folder, capsys):
     root, _, add_method = prepared_folder
     add_method("DPA")
@@ -680,7 +709,7 @@ def test_history_rejects_corruption_and_bundle_requires_input(tmp_path, capsys):
     with pytest.raises(SystemExit, match="0"):
         cli.app(["bundle"])
     assert "No prepared folders" in capsys.readouterr().out
-    with pytest.raises(ValueError, match="Pass --in FOLDER"):
+    with pytest.raises(ValueError, match="METHODS --in FOLDER"):
         cli.bundle("DPA")
 
 

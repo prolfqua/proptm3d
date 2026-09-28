@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import re
 
-_UNIPROT_IN_HEADER = re.compile(r"(?:sp|tr)\|([A-Z0-9]{6,10}(?:-\d+)?)\|")
+_UNIPROT_IN_HEADER = re.compile(r"(?:sp|tr)\|(?:Cont_)?([A-Z0-9]{6,10}(?:-\d+)?)\|")
 _UNIPROT_DIRECT = re.compile(r"^[A-Z0-9]{6,10}(?:-\d+)?$")
 
 

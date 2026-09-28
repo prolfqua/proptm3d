@@ -12,6 +12,7 @@ from proptm3d.uniprot_accession import parse_uniprot_accession
         ("tr|A0A024R5Z9|A0A024R5Z9_HUMAN", "A0A024R5Z9"),
         ("P28482", "P28482"),
         ("P28482-2", "P28482-2"),
+        ("sp|Cont_O46375|TTHY_BOVIN", "O46375"),
         ("weird|Q12345|rest", "Q12345"),
         ("not-an-accession", "not-an-accession"),
     ],

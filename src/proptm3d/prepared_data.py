@@ -18,16 +18,19 @@ class MethodSpec:
 
     modality: str
     result_method: str
+    site_estimate: str
     effect: str
     fdr: str
     p_value: str
     std_error: str
+    corrected_layer: str | None = None
 
 
 METHOD_SPECS = {
     "DPA": MethodSpec(
         "enriched",
         "dpa",
+        "estimate_type.site",
         "diff.site",
         "FDR.site",
         "p.value.site",
@@ -36,18 +39,21 @@ METHOD_SPECS = {
     "DPU": MethodSpec(
         "enriched",
         "dpu",
+        "estimate_type.site",
         "diff_diff",
         "FDR_I",
         "pValue_I",
         "SE_I",
     ),
     "CF-DPU": MethodSpec(
-        "cf",
-        "correct_first",
+        "enriched_CF",
+        "correct_first_protein_imputed",
+        "estimate_type",
         "diff.site",
         "FDR.site",
         "p.value",
         "std.error",
+        "correct_first_protein_imputed",
     ),
 }
 
@@ -110,6 +116,23 @@ def _strings(dataset: h5py.Dataset) -> list[str]:
     return np.atleast_1d(dataset.asstr()[()]).tolist()
 
 
+def _column_values(column: h5py.Dataset | h5py.Group) -> list[object]:
+    """Read one column from the AnnData data-frame encoding used by the pipeline."""
+    if isinstance(column, h5py.Dataset):
+        values = column.asstr()[()] if column.dtype.kind in "OSU" else column[()]
+        return np.atleast_1d(values).tolist()
+    if column.attrs.get("encoding-type") != "nullable-string-array":
+        message = f"Unsupported MuData column encoding at {column.name}"
+        raise ValueError(message)
+    values = _strings(column["values"])
+    missing = np.atleast_1d(column["mask"][()]).astype(bool).tolist()
+    if len(values) != len(missing):
+        message = f"Nullable values and mask disagree at {column.name}"
+        raise ValueError(message)
+    pairs = zip(values, missing, strict=True)
+    return [None if is_missing else value for value, is_missing in pairs]
+
+
 def _result_frame(
     handle: h5py.File,
     modality: str,
@@ -117,46 +140,41 @@ def _result_frame(
     desired: tuple[str, ...],
 ) -> pl.DataFrame:
     source = handle[f"mod/{modality}"]
-    namespace = source["uns/prophosqua"]
-    keys = _strings(namespace[f"result_keys/{result_method}"])
+    prefix = f"{result_method}__"
+    keys = sorted(key for key in source["varm"] if key.startswith(prefix))
     if not keys:
         msg = f"No {result_method} result keys"
         raise ValueError(msg)
     required = {"protein_Id", "site", "contrast"}
     frames = []
     for key in keys:
-        prefix = f"{result_method}__"
-        if not key.startswith(prefix):
-            msg = f"Unexpected {result_method} result key: {key}"
-            raise ValueError(msg)
         contrast = key[len(prefix) :]
-        columns = _strings(namespace[f"varm_columns/{key}"])
-        annotations = namespace[f"varm_annotations/{key}"]
-        available = set(source["var"]) | set(columns) | set(annotations) | {"contrast"}
+        result = source[f"varm/{key}"]
+        if not isinstance(result, h5py.Group) or result.attrs.get("encoding-type") != "dataframe":
+            msg = f"Result {key} is not an AnnData data frame"
+            raise ValueError(msg)
+        available = set(source["var"]) | set(result) | {"contrast"}
         missing = required - available
         if missing:
             msg = f"{result_method} lacks required columns: {sorted(missing)}"
             raise ValueError(msg)
-        selected = [name for name in desired if name in available]
-        present = source[f"varm/{key}__present"][()].reshape(-1).astype(bool)
-        values = source[f"varm/{key}"][()]
-        if values.shape != (len(present), len(columns)):
-            msg = f"Result matrix and columns disagree for {key}"
+        result_index = _strings(result["_index"])
+        var_index = _strings(source["var/_index"])
+        if result_index != var_index:
+            msg = f"Result rows do not match the {modality} feature order for {key}"
             raise ValueError(msg)
-        selected_rows = np.flatnonzero(present)
+        selected = [name for name in dict.fromkeys(desired) if name in available]
         fields = {}
         for name in selected:
             if name == "contrast":
-                fields[name] = [contrast] * len(selected_rows)
-            elif name in columns:
-                column = values[selected_rows, columns.index(name)]
-                fields[name] = [float(value) if np.isfinite(value) else None for value in column]
+                fields[name] = [contrast] * len(result_index)
+            elif name in result:
+                fields[name] = _column_values(result[name])
             else:
-                dataset = annotations[name] if name in annotations else source[f"var/{name}"]
-                column = _strings(dataset) if dataset.dtype.kind in "OSU" else dataset[()].tolist()
-                if "as.na" in dataset.attrs:
-                    column = [None if value == "NA" else value for value in column]
-                fields[name] = [column[index] for index in selected_rows]
+                fields[name] = _column_values(source[f"var/{name}"])
+            if len(fields[name]) != len(result_index):
+                msg = f"Result column {name} has the wrong length for {key}"
+                raise ValueError(msg)
         frames.append(pl.DataFrame(fields))
     return pl.concat(frames, how="diagonal_relaxed")
 
@@ -168,10 +186,7 @@ def _site_frame(modality: h5py.Group) -> pl.DataFrame:
     if missing:
         message = f"Site modality lacks required annotations: {sorted(missing)}"
         raise ValueError(message)
-    fields = {
-        name: _strings(var[name]) if var[name].dtype.kind in "OSU" else var[name][()].tolist()
-        for name in _SITE_COLUMNS
-    }
+    fields = {name: _column_values(var[name]) for name in _SITE_COLUMNS}
     sites = (
         pl.DataFrame(fields)
         .filter(pl.col("fasta.id").str.contains(r"^(?:contam_)?(?:sp|tr)\|"))
@@ -201,7 +216,10 @@ def _sample_frame(modality: h5py.Group) -> list[dict[str, str]]:
 
 
 def _matrix_by_site(
-    modality: h5py.Group, requested: list[str], samples: list[dict[str, str]]
+    modality: h5py.Group,
+    requested: list[str],
+    samples: list[dict[str, str]],
+    matrix_name: str = "X",
 ) -> np.ndarray:
     source_samples = _sample_frame(modality)
     sample_lookup = {item["sample"]: index for index, item in enumerate(source_samples)}
@@ -219,7 +237,7 @@ def _matrix_by_site(
         raise ValueError(message)
     row_indices = [sample_lookup[item["sample"]] for item in samples]
     column_indices = [site_lookup[site] for site in requested]
-    matrix = modality["X"][()]
+    matrix = modality[matrix_name][()]
     return matrix[np.ix_(row_indices, column_indices)]
 
 
@@ -253,12 +271,12 @@ def _protein_matrix(
 def _stats_frame(handle: h5py.File, spec: MethodSpec) -> pl.DataFrame:
     desired = (*_RESULT_COLUMNS, spec.effect, spec.fdr, spec.p_value, spec.std_error)
     raw = _result_frame(handle, spec.modality, spec.result_method, desired)
-    required = {spec.effect, spec.fdr}
+    required = {spec.site_estimate, spec.effect, spec.fdr}
     missing = required - set(raw.columns)
     if missing:
         message = f"{spec.result_method} lacks required result columns: {sorted(missing)}"
         raise ValueError(message)
-    raw = raw.filter(pl.col("site").is_not_null())
+    raw = raw.filter(pl.col("site").is_not_null() & (pl.col(spec.site_estimate) == "observed"))
     gene_column = "gene_name.site" if "gene_name.site" in raw.columns else "gene_name"
     selected = [
         pl.col("protein_Id"),
@@ -275,23 +293,15 @@ def _stats_frame(handle: h5py.File, spec: MethodSpec) -> pl.DataFrame:
         pl.col(spec.std_error).cast(pl.Float64, strict=False).alias("std_error"),
     ]
     stats = raw.select(selected)
-    site_estimate = "estimate_type" if "estimate_type" in raw.columns else "estimate_type.site"
     stats = stats.with_columns(
-        raw[site_estimate].alias("site_estimate_type"),
+        raw[spec.site_estimate].alias("site_estimate_type"),
         (
             raw["estimate_type.protein"]
             if "estimate_type.protein" in raw.columns
             else pl.Series("protein_estimate_type", [None] * raw.height, dtype=pl.String)
         ).alias("protein_estimate_type"),
     )
-    stats = stats.with_columns(
-        (
-            (pl.col("site_estimate_type") == "lod_imputed")
-            | (pl.col("protein_estimate_type") == "lod_imputed")
-        )
-        .fill_null(False)
-        .alias("imputed")
-    )
+    stats = stats.with_columns(pl.lit(False).alias("imputed"))
     dpa_spec = METHOD_SPECS["DPA"]
     source = _result_frame(
         handle,
@@ -361,7 +371,14 @@ def read_prepared_tables(
         site_values = _matrix_by_site(handle["mod/enriched"], site_names, samples)
         protein_values = _protein_matrix(handle["mod/total"], sites["fasta.id"].to_list(), samples)
         corrected_values = (
-            _matrix_by_site(handle["mod/cf"], site_names, samples) if method == "CF-DPU" else None
+            _matrix_by_site(
+                site_modality,
+                site_names,
+                samples,
+                f"layers/{spec.corrected_layer}",
+            )
+            if spec.corrected_layer
+            else None
         )
         stats = _stats_frame(handle, spec).join(
             sites.select("protein_Id", "site"), on=["protein_Id", "site"], how="inner"

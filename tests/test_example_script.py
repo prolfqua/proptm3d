@@ -18,12 +18,11 @@ def test_fish_example_uses_all_method_cli_and_literal_paths():
         if line.strip() and not line.startswith("#")
     ]
     assert lines == [
-        "proptm3d prepare stats ~/data_analysis/o43037_FP24_AntjePhospho/output_3d "
-        "--input ~/data_analysis/o43037_FP24_AntjePhospho/"
-        "PTM_HIF2a_mutant_vs_GFP_control/PTM_statistics.h5mu",
+        "proptm3d prepare stats --input ~/data_analysis/o43037_FP24_AntjePhospho/"
+        "PTM_HIF2a_mutant_vs_GFP_control.zip",
         "or exit 1",
-        "proptm3d bundle --in ~/data_analysis/o43037_FP24_AntjePhospho/output_3d "
-        "--out ~/data_analysis/o43037_FP24_AntjePhospho/proptm3d-all.zip",
+        "proptm3d bundle ~/data_analysis/o43037_FP24_AntjePhospho/"
+        "proptm3d_PTM_HIF2a_mutant_vs_GFP_control",
     ]
 
 
@@ -44,13 +43,8 @@ def test_fish_example_invokes_cli_and_stops_after_prepare_failure(tmp_path, fail
     subprocess.run(["fish", "--no-config", "-n", str(SCRIPT)], check=True)
     result = subprocess.run(["fish", "--no-config", str(SCRIPT)], env=env, check=False)
 
-    expected = [
-        f"prepare stats {ANALYSIS / 'output_3d'} --input "
-        f"{ANALYSIS / 'PTM_HIF2a_mutant_vs_GFP_control' / 'PTM_statistics.h5mu'}"
-    ]
+    expected = [f"prepare stats --input {ANALYSIS / 'PTM_HIF2a_mutant_vs_GFP_control.zip'}"]
     if not fail_prepare:
-        expected.append(
-            f"bundle --in {ANALYSIS / 'output_3d'} --out {ANALYSIS / 'proptm3d-all.zip'}"
-        )
+        expected.append(f"bundle {ANALYSIS / 'proptm3d_PTM_HIF2a_mutant_vs_GFP_control'}")
     assert log.read_text().splitlines() == expected
     assert result.returncode == (1 if fail_prepare else 0)

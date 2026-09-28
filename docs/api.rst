@@ -1,7 +1,7 @@
 Python API
 ==========
 
-The CLI is the primary entry point. These Python functions are available for applications that need to prepare or serve method directories programmatically. The default output path and method set are documented in their signatures.
+The CLI is the primary entry point. These Python functions are available for applications that need to prepare, bundle, or serve method directories programmatically. Output roots are explicit; method defaults are documented in the function signatures.
 
 Preparation
 -----------
@@ -16,7 +16,16 @@ Prepared roots and bundles
    :members: available_methods, clean_prepared_root
 
 .. automodule:: proptm3d.bundle
-   :members: bundle_prepared_root
+   :members: bundle_prepared_root, validate_bundle
+
+B-Fabric upload
+---------------
+
+.. automodule:: proptm3d.bfabric_upload
+   :members: upload_artifacts, upload_bundle, upload_pair
+
+.. automodule:: proptm3d.upload_cache
+   :members: latest_upload_pair, pair_from_paths, record_bundle, record_pair, record_preparation
 
 Static serving
 --------------

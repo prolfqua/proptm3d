@@ -1,6 +1,8 @@
+<!-- Managed by agent: keep sections and order; edit content, not structure. Last updated: 2026-09-28 -->
+
 # proptm3d agent guide
 
-`proptm3d` is a uv-managed Python package with a `src/` layout. Its public CLI prepares method-scoped browser data from either `PTM_statistics.h5mu` or a completed PTM delivery with GSEA results. The browser UI is the TypeScript/Vite app in [web/](web/); see [web/README.md](web/README.md) for its build and deployment commands and [the scenario plan](../TODO/proptm3d/TODO_no_enrichment_browser_app.md) for its data and view contract.
+`proptm3d` is a uv-managed Python package with a `src/` layout. Its public CLI prepares method-scoped static sites from either `PTM_statistics.h5mu` or a completed PTM delivery with GSEA results. The browser UI is the TypeScript/Vite app in [web/](web/). Use [the browser guide](docs/browser.md) for current behaviour, [the prepared-data contract](docs/data.md) for the Python/TypeScript boundary, and [web/README.md](web/README.md) for frontend build commands.
 
 Precedence: the closest `AGENTS.md` wins for its own directory.
 
@@ -29,32 +31,37 @@ uv run proptm3d cache structures MOUSE
 uv run proptm3d cache context MOUSE
 uv run proptm3d cache clean MOUSE
 uv run proptm3d prepare stats DPA /path/to/viewer --input PTM_statistics.h5mu
+uv run proptm3d prepare stats --input /path/to/PTM_delivery.zip
 uv run proptm3d prepare gsea DPA /path/to/viewer --input PTM_delivery.zip
 uv run proptm3d serve DPA /path/to/viewer --port 8000
 uv run proptm3d serve /path/to/viewer
 uv run proptm3d serve /path/to/viewer-DPA.zip
 uv run proptm3d bundle DPA --in /path/to/viewer
 uv run proptm3d bundle DPA DPU --in /path/to/viewer
-uv run proptm3d bundle --in /path/to/viewer
+uv run proptm3d bundle /path/to/viewer
+uv run proptm3d upload 43037 "ptm-pipeline_analysis_v3"
 uv run proptm3d clean /path/to/viewer
 
 cd web && npm ci && cd .. && make package-web
 ```
 
-The method names are `DPA`, `DPU`, and `CF-DPU`. Omitting the method from `prepare stats` or `prepare gsea` selects all three; both require a positional prepared folder and `--input`. Preparation writes the complete browser app and Python-rendered plot backgrounds. `serve FOLDER` shows the all-method chooser without changing the prepared root; `serve METHOD FOLDER` shows one method, and `serve BUNDLE.zip` extracts a ZIP temporarily. Bare `bundle` lists prepared-folder history; `bundle --in FOLDER` includes every prepared method, while positional methods select a subset. Bundles share referenced structure and PAE files under `shared/`. `clean FOLDER` deletes the whole validated root, never the input or shared cache. A bare `proptm3d` shows help. Cache downloads under `~/.cache/proptm3d` are shared; `cache clean HUMAN|MOUSE` removes only the selected organism's AlphaFold cache.
+The method names are `DPA`, `DPU`, and `CF-DPU`. Omitting both method and folder from `prepare stats` or `prepare gsea` selects all three and writes beside the input as `proptm3d_<input basename>`. A method without a folder selects that method in the same default folder; an explicit folder without a method selects all three. `--input` is always required. Preparation writes the root method chooser, complete method browser apps, and Python-rendered plot backgrounds. `serve FOLDER` serves that all-method chooser; `serve METHOD FOLDER` shows one method, and `serve BUNDLE.zip` extracts a ZIP temporarily. Bare `bundle` lists prepared-folder history; `bundle FOLDER` includes every prepared method behind the chooser entry page, while positional methods plus `--in FOLDER` select a subset. Bundles share referenced structure and PAE files under `shared/`. `clean FOLDER` deletes the whole validated root, never the input or shared cache. A bare `proptm3d` shows help. Cache downloads under `~/.cache/proptm3d` are shared; `cache clean HUMAN|MOUSE` removes only the selected organism's AlphaFold cache.
 
 ## Architecture
 
-The exhaustive import-linter contract in `pyproject.toml` enforces the main direction: CLI -> preparation/bundling/static serving -> prepared-root/context boundaries -> extraction/cache modules. `__init__.py` stays empty.
+The exhaustive import-linter contract in `pyproject.toml` enforces the main direction: CLI -> B-Fabric upload -> preparation/bundling/static serving -> prepared-root/context boundaries -> extraction/cache modules. `__init__.py` stays empty.
 
 | Module | Responsibility |
 |---|---|
-| `cli.py` | Cyclopts `cache`, `prepare`, `serve`, `bundle`, and `clean` commands |
+| `cli.py` | Cyclopts `cache`, `prepare`, `serve`, `bundle`, `upload`, and `clean` commands |
+| `bfabric_upload.py` | Validated PTM Pipeline/application 431 and proptm3d/application 434 uploads through their shared saved client-credentials environment |
+| `upload_cache.py` | User-level association of a prepared root with its source PTM delivery and derived proptm3d bundle |
 | `prepare.py` | Atomic method package export, manifests, and Parquet tables |
 | `browser_assets.py`, `plot_backgrounds.py` | Packaged static app installation and Python-rendered black-point plots |
 | `prepared_history.py`, `prepared_root.py`, `bundle.py` | Prepared-root discovery, ownership checks, and portable ZIP export |
 | `gsea_data.py` | Validated, streaming extraction of completed GSEA stage artifacts into Polars tables |
 | `structural_context_cache.py` | Archive-wide AlphaFold PAE/context precomputation and completed-cache loading |
+| `structural_context.py` | Residue-level pPSE/IDR computation and site-to-model context matching |
 | `prepared_data.py` | DPA/DPU/CF-DPU result selection, site catalog, aligned sample evidence |
 | `uniprot_cache.py` | Whole-proteome UniProt sequence and feature cache, foreign accession mapping |
 | `alphafold_cache.py` | AlphaFold archive download, compressed model extraction, foreign model fetch |
@@ -64,9 +71,9 @@ The exhaustive import-linter contract in `pyproject.toml` enforces the main dire
 
 ## Data and implementation rules
 
-- Use Polars DataFrames, not pandas. `prepare stats` reads `PTM_statistics`; `prepare gsea` reads `PTM_results` plus the delivery ZIP's GSEA stage artifacts. Both require MuData schema `2.0.0` and fail clearly on unsupported input.
+- Use Polars DataFrames, not pandas. `prepare stats` reads direct AnnData data frames from `enriched/varm/dpa__*`, `enriched/varm/dpu__*`, and `enriched_CF/varm/correct_first_protein_imputed__*`; CF-DPU abundance comes from `enriched_CF/layers/correct_first_protein_imputed`. Do not support the removed `mod/cf` or split result-matrix layout. `prepare gsea` reads `PTM_results` plus the delivery ZIP's GSEA stage artifacts. Both require MuData schema `2.0.0` and fail clearly on unsupported input.
 - Keep the public `proptm3d` executable and method names stable. Do not reintroduce the old default Excel/CSV CLI.
-- Retain every measured real-protein site, including sites without a statistical estimate. Exclude reverse decoys with no UniProt identifier. Preserve `contam_sp|...` proteins.
+- Retain every measured real-protein site, including sites without a statistical estimate, but export statistical rows only when the site-level estimate is `observed`. A DPU protein estimate may be imputed. Exclude reverse decoys with no UniProt identifier. Preserve contaminant proteins and normalize `sp|Cont_<accession>|...` to the underlying UniProt accession for annotation and structure lookup.
 - Key site results by `(protein_Id, site, contrast)`. The volcano uses the selected method's effect/FDR. The protein-versus-site scatter uses DPA original site and total-protein effects for every method.
 - Align site, total-protein, and CF abundance by `obs/Name`; preserve `obs/G_` and missing values. Do not substitute zero for missing abundance.
 - Download UniProt and selected AlphaFold models during preparation; download archive-wide PAE and compute residue context only during `cache context`. Every preparation requires and joins the completed structural-context cache. `serve` exposes static files through GET/HEAD and performs no external request. Keep cache files outside the explicitly selected prepared root.

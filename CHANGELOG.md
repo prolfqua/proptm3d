@@ -4,198 +4,43 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.1.0] - Unreleased
 
+### Added
+
+- A `proptm3d` command prepares DPA, DPU, and CF-DPU static browser sites from `PTM_statistics.h5mu`, statistics delivery ZIPs, or completed delivery ZIPs containing `PTM_results.h5mu`.
+- `prepare stats` exports measured proteins and sites, method-specific effects and FDRs, aligned sample evidence, original site and total-protein effects, UniProt annotations, AlphaFold model metadata, and structural context as Parquet tables.
+- `prepare gsea` validates completed PTM delivery artifacts and adds normalized PTM-SEA, KinaseLib, and MEA terms with full and leading-edge member windows as `gsea_terms.parquet`.
+- `cache structures` and `cache context` manage reusable HUMAN and MOUSE AlphaFold v6 structures, PAE matrices, and the published Bludau/StructureMap prediction-aware exposure and IDR annotations.
+- A self-hosted TypeScript browser provides All contrasts, Single contrast, and Single contrast sequlogos discovery views; linked Protein detail and Site abundance workspaces; volcano, protein-versus-site, N-to-C, sequence-logo, abundance, 3D structure, and PAE views; and no runtime dependency on a CDN or external data API.
+- Protein detail can color AlphaFold structures by pLDDT, exposure, predicted region, exact UniProt feature type, N-to-C position, or a neutral color. Its N-to-C plot aligns UniProt features with residue-by-residue exposure, predicted region, and pLDDT tracks.
+- Independent Exposure and Region filters apply consistently to protein summaries, plots, Protein detail, 3D and N-to-C markers, and Site abundance without redefining statistical significance.
+- Portable single-method, selected-method, and all-method ZIPs materialize referenced structures, PAE, and residue-context files under one shared directory. Bundles include optional Python-standard-library launchers for macOS/Linux and Windows.
+- `proptm3d upload ORDER_ID WORKUNIT_NAME` discovers and validates the cached PTM Pipeline delivery and proptm3d bundle, confirms the pair or prompts for replacement paths, then uploads them as separate workunits through B-Fabric applications 431 and 434 using the shared saved client credentials after a final confirmation. Interactive uploads show live per-file percentage, transferred bytes, speed, and ETA. An explicit third positional ZIP uploads only a proptm3d bundle.
+- `serve FOLDER` previews all prepared methods behind an analysis overview, `serve METHOD FOLDER` opens one method, and `serve BUNDLE.zip` validates and extracts a bundle temporarily.
+- Successful preparations are recorded in user-level history for discovery by a bare `bundle` command. `clean FOLDER` removes only a wholly owned prepared root and never removes source data or the shared cache.
+- Sphinx documentation, GitHub CI, Python 3.11 and 3.13 test coverage, TypeScript checks, browser-build verification, deploy smoke tests, and wheel-content verification form the package quality gate.
+
 ### Changed
 
-- The N-to-C protein plot now aligns residue-by-residue exposure, predicted region, and pLDDT confidence tracks beneath UniProt features, with exact values and AlphaFold fragment in hover labels.
-- Site abundance lists the protein's sites in a table instead of a dropdown: hovering a row shows its boxplots, leaving restores the selected site, and clicking opens it in Protein detail's 3D structure. Protein detail and Site abundance split table and plots 50/50, and the 3D, N-to-C, PAE, and abundance plots fill the height of the table beside them.
-- The analysis overview now reports experimental groups and samples per group, counts samples once across methods, and explains that enriched and total measurements are paired instead of showing a context-free sample total.
-- The FDR and |log2FC| cutoffs now accept any FDR in (0, 1] and any |log2FC| of at least 0 for the protein tables, Protein detail, 3D and N-to-C markers, and Site abundance. The volcano and protein/site scatter still colour only sites with FDR below 0.25 and |log2FC| above 1 at most.
-- Protein detail now has a right-side explanation panel for estimate, exposure, predicted IDR, pLDDT, UniProt features, and significance thresholds. The 3D structure can be colored by residue exposure, predicted region, or prepared UniProt feature type in addition to confidence and position. Preparation serves selected residue-context Parquet files, and bundles share them across methods.
-- Multi-method bundles and direct prepared-root serving now open a complete, self-contained analysis overview with method descriptions, coverage counts, provenance, and links to each viewer.
-- `bundle` now reports an existing output ZIP with a concise next step instead of a Python traceback; it still never overwrites the ZIP.
-- Bundles now place referenced AlphaFold structures and PAE files once under `shared/`, including for single-method ZIPs; `bundle DPA DPU --in FOLDER` exports a selected subset with a chooser page and no duplicate model files.
-- `serve FOLDER` now previews every prepared method behind the all-method landing page without requiring a ZIP or modifying the prepared folder.
-- A runnable fish example now prepares and bundles all three methods for the `o43037_FP24_AntjePhospho` analysis without `uv run` or npm.
-- Bundles now include Python-standard-library local serving launchers for macOS/Linux and Windows by default, allowing an extracted ZIP to run without an installed proptm3d package; `--no-include-server` omits them for static-only deployment.
-- Preparation now writes the complete packaged browser app and Python-rendered volcano/scatter backgrounds, so `prepare` followed by `bundle` produces a working static ZIP without npm or an intermediate `serve`. `serve BUNDLE.zip` validates and temporarily extracts a single- or all-method ZIP for local preview.
-- Re-preparation now refuses unrecognized files and preserves an existing recovery backup; portable bundles verify the complete deployed browser asset inventory, and the deploy smoke test runs in the full quality gate. Retired Excel/CSV-only Python modules and dependencies have been removed.
-- Preparation and serving now require an explicit prepared output folder. Successful preparations appear in `bundle` history; `bundle` exports portable single-method or all-method ZIP websites, while `clean FOLDER` removes only a wholly owned prepared root.
-- The browser adds independent Exposure (Exposed, Buried) and Region (IDR, Structured) filters from the precomputed Bludau structural context. Both default to All, so the default view is unchanged; a chosen category applies to every Find and Protein detail view, including Show all sites, and excludes sites without matched context. Significance still depends only on FDR and |log2FC|.
-- Protein detail shows each site's exposure, region, and pLDDT, with mapping status and raw neighbor counts in tooltips, 3D marker tooltips, and the selected-site line; residue mismatches and unavailable context stay distinct from buried or structured sites.
-- Protein detail has a PAE tab beside 3D structure and N-to-C that lazily loads the displayed AlphaFold model's PAE heatmap with guides at the selected site; clicking a cell selects a site at that residue.
-- Prepared method folders link the cached PAE file of each experiment model under `pae/`, and `structures.parquet` gains a nullable `pae_url` column. Regenerate prepared packages to use the new browser views.
-- Python installation, preparation, data-format, and API documentation now builds as a local Sphinx site and is checked in CI alongside the Python and TypeScript quality gates.
-- Protein detail now clears the previous protein and site while a new protein loads; a failed load shows its error instead of leaving stale abundance available.
-- The obsolete Excel/CSV browser pipeline and its static-app installer are retired. Method-scoped h5mu preparation and the deployed TypeScript app are the supported path.
-- Protein detail's 3D phosphosite markers no longer draw dark wireframe shells, so their effect colors remain clear when zoomed out; marker selection still uses the colored spheres.
-- Find proteins now has separate Single contrast (protein table with hover-focused volcano and protein/site scatter) and Single contrast sequlogos (independent full volcano, protein/site scatter, and logos) views. Leaving a protein row restores every red/blue point and both black backgrounds in Single contrast; automatic browser resource requests are restricted to served files while external protein links remain clickable.
-- Prepared protein Parquet tables now retain the input MuData protein description and include direct UniProt and species-aware STRING links for each annotated accession.
-- The main Find tab is now named Find proteins. Redundant headings within its All contrasts and Single contrast views, the Site abundance tab, and the Protein detail subtabs are removed; the global search label is shortened, while counts, context, and plot legends stay beside the content they describe.
-- Dense UniProt feature names in the N-to-C plot now appear in compact, readable tooltips instead of overlapping on the tracks; colored intervals and feature-type rows remain visible, and short motifs have larger hover targets.
-- One top row now holds significance cutoffs, displayed contrast, estimate type, and protein search without redundant labels or subtab search boxes. The compact Protein detail header places Show all sites beside the protein identity and shows the prepared h5mu description on a second line when available. Protein detail and Site abundance show only passing sites by default; Show all restores measured sites in the detail table, 3D/N-to-C plots, and abundance site choices. The N-to-C lollipop is the second Protein detail subtab behind the structure view.
-- The DPA abundance view now pairs each site's sample boxplots with aligned total-protein sample boxplots below them, matching the DPU and CF-DPU protein evidence panels.
-- Prepared method folders now serve Parquet-only data tables, including protein structures; the browser reads DEA results and abundance plots from Parquet, and the Single contrast plots show precomputed black background sites with only threshold-passing red/blue sites interactive (FDR at most 25%, minimum |log2FC| at least 1).
-- Preparation is now explicit: `prepare stats [METHOD]` exports quantification and DEA Parquet tables, while `prepare gsea [METHOD] --input DELIVERY.zip` exports the same tables plus validated GSEA terms and fails when the delivery lacks GSEA results.
-- `cache context HUMAN|MOUSE` computes and caches the published Bludau/StructureMap prediction-aware exposure and IDR annotations for an entire AlphaFold reference-proteome archive. Every preparation joins this completed residue cache automatically; the former `--structural-context` option is removed.
-- AlphaFold PAE precomputation now preserves EBI's existing gzip objects, downloads missing files concurrently from the public GCS release bucket, and begins computing completed models immediately instead of serially downloading and recompressing the entire proteome first.
-- AlphaFold cache management now uses `cache structures`, `cache context`, and organism-scoped `cache clean` subcommands; the long `precompute-structural-context` command is removed. Bare `cache` reports complete, partial, or absent local structure, PAE, and context caches for the supported HUMAN/MOUSE proteomes, while its help distinguishes EBI downloads from locally derived context and links to EBI's other proteomes.
-- The browser's Find view keeps readable protein column headings, avoids redrawing plots while searching proteins, and loads smaller chart-specific Plotly bundles on demand. Clicking a protein row opens Protein detail.
-- A self-hosted TypeScript browser app now explores prepared DPA, DPU, and CF-DPU methods with searchable site summaries, linked structure and N-to-C views, sequence logos, and sample-level abundance plots; the previous JavaScript frontend is archived separately.
-- The DPU preparation summary now counts sites, proteins, and structures with a finite DPU fold change and FDR; measured sites without a complete DPU result remain in the catalog and are reported separately.
-- `prepare stats --input` accepts a PTM statistics delivery ZIP and reads its current per-contrast result matrices without manual extraction; a missing input displays the subcommand help and exits without a traceback.
-- Successful `prepare` output now prints each method's absolute folder and the command that serves it.
-- Bare `serve` now lists the required method choices instead of showing a `--method` parsing error.
-- The CLI now prepares, serves, and cleans DPA, DPU, or CF-DPU method packages from `PTM_statistics.h5mu`. With no method, `prepare` and `clean` handle all three; a bare command shows help.
-- Serving a prepared method uses static files only, including cached compressed AlphaFold models.
-- Interrupted multi-gigabyte AlphaFold archive downloads now retain a partial file and resume with HTTP Range requests.
-- UniProt accession mappings and AlphaFold prediction metadata are cached across preparations; concurrent preparations share the archive download, and oversized or short downloads are retried.
-
-- Prepared packages retain all measured sites and aligned sample evidence, including missing values, alongside method-specific effects, original site/protein fold changes, UniProt feature coordinates, and annotation status.
-
-- One browser app instead of two, laid out as rawDIAGQC's viewer is: `app.js` is the
-  composition root, `lib/session.js` holds the selection state and every derivation
-  the views need (contrast scope, category membership, site decoration, rows per
-  contrast) with node tests, `shell/ptm-app.js` is a Lit shell that only emits
-  intents, and `render/` holds the Tabulator, 3Dmol (`ViewerPool`) and Plotly
-  backends. Two workspaces in a tab strip: **Find** (categories and the protein table
-  with header filters and a matched/total counter; a row click opens the protein) and
-  **Protein** (site table, one 3D panel per contrast with a pLDDT and log2FC legend
-  overlay, the N-to-C pane). The classic card app (`index.html` + old `app.js`), the
-  `lit.html` page and its monolithic `lit-app.js` are gone; `index.html` is the app.
-- The site table shows an imputation column; 3Dmol is pinned to 2.5.5 on jsdelivr
-  instead of the unversioned 3dmol.org build.
+- `prepare stats` and `prepare gsea` now default to `proptm3d_<input basename>` beside the input when no output folder is supplied; omitting the method prepares all methods, while a method-only positional selects that method in the default folder.
+- `bundle FOLDER` now bundles every prepared method and writes the shared method-chooser entry page; `--in FOLDER` remains available when positional methods select a subset.
+- Completed PTM deliveries now work directly with `prepare stats`, and `prepare gsea` reads the current checksum-validated `result_*.json.gz` protsea documents recorded by `PTM_results.h5mu`.
+- Statistics preparation now reads the current direct-`varm` `PTM_statistics.h5mu` layout, discovers every contrast, reports the protein-imputed `enriched_CF` CorrectFirst analysis, and exports only observed site-level estimates while retaining all measured sites.
+- UniProt accessions embedded as `sp|Cont_<accession>|...` are normalized for annotation and AlphaFold lookup, so contaminant proteins no longer abort preparation with malformed prediction requests.
+- Preparation writes the complete packaged browser application and Python-rendered dense-plot backgrounds, so a prepared folder can be bundled without npm, Node, or an intermediate serve/deploy step.
+- Preparation now writes the multi-method chooser as the prepared root's `index.html`; bundling remains responsible for materializing shared cache files, rewriting their paths, adding launchers and metadata, and producing the portable ZIP.
+- Local serving is now read-only: it serves the static files and root `index.html` written by preparation or bundling, without synthesizing an entry page or updating prepared-folder history.
+- Every prepared site remains available even when it has no estimable result or matching structural context. Missing abundance remains null, and residue mismatches and unavailable context remain distinct from buried or structured classifications.
+- Shared FDR, absolute log2 fold-change, contrast, estimate-type, exposure, region, and search controls update the linked workspaces. Protein detail's Show all sites restores measured sites while retaining explicit estimate and structural filters.
+- The dense volcano and protein-versus-site plots retain complete static black backgrounds while exposing only qualifying red and blue points interactively. Hovering a protein row temporarily isolates that protein and restores the complete plot on leave.
+- Site abundance uses a site table: hovering previews sample boxplots, leaving restores the selected site, and clicking opens it in Protein detail. DPA and DPU show aligned site and total-protein evidence; CF-DPU also shows corrected abundance.
+- Multi-method overviews report experimental groups, samples per group, coverage, method descriptions, and preparation provenance without counting paired enriched and total measurements as separate samples.
+- AlphaFold archive downloads resume from retained partial files, concurrent preparations share cache work, and interrupted context precomputation reuses completed model files.
+- Bundling verifies the browser asset inventory, refuses incomplete or unsafe prepared roots, writes atomically, and never overwrites an existing ZIP.
 
 ### Renamed
 
-- The project, package and console script are now `proptm3d` (`import proptm3d`,
-  `proptm3d --input ...`, `proptm3d serve`); the structure cache default moved from
-  `~/.cache/ptm3d_structures` to `~/.cache/proptm3d`. The ptm-pipeline configuration
-  key, rule names and output folder follow (`proptm3d:` in `ptm_config.yaml`,
-  `<analysis>/proptm3d/index.html`); `ptm-pipeline update` renames the key in existing
-  projects.
-
-- N-to-C lollipop pane under the 3D panels of the table view: one row per drawn
-  contrast sharing the residue axis, a stick from zero to each site's log2FC, heads
-  colored like the 3D spheres, dashed sticks and open heads for imputed estimates, an
-  asterisk over sites at or below the run's FDR threshold, and a band at the
-  protein-level log2FC where the analysis has one. Clicking a head selects the site row
-  exactly like clicking a sphere; the selected site gets the large head. The figure is
-  built by the pure module `assets/panels/ntoc.js` (node tests under `tests/web/`,
-  `make test-web`) and drawn by Plotly (`assets/render/plotly.js`, pinned in
-  `vendor/plotly.js`).
-- `--fdr` on the CLI: the significance threshold for protein selection and the
-  catalog's significant-site counts, recorded in the catalog as `fdr_threshold`; the
-  ptm-pipeline rule passes its own `fdr` so the 3D catalog agrees with the reports.
-- Payloads carry `sequence`, `protein_length`, `protein_log2fc` per contrast and an
-  `imputed` flag per site, derived from the `estimate_type` columns the way
-  prophosqua's `.imputation_status` does; the MuData reader passes those columns
-  through.
-
-- Preserve missing integer and logical annotations when reading MuData written by R, including DPU protein-only rows without a site position.
-
-- Read PTM statistics and embedded enrichment directly from final prophosqua MuData, before delivery workbooks are exported.
-
-### Added
-
-- GSEA category selector in the table view. `ptm3d --enrichment <json>...` takes the
-  GSEAResult JSON files prophosqua now writes (PTM-SEA, KinaseLib, MEA), matches their
-  member sequence windows against the PTM table (the site-category association is the
-  N:M relation on the canonical upper-case window, so paralog sites sharing a window
-  all inherit the membership), and writes a compact `data/categories.*` index. The app
-  gains a category table: selecting a kinase/signature filters the protein and site
-  tables to its members, while the figure keeps drawing all sites and marks the members
-  (accent color, grey unlabeled context). A member-mode toggle switches between the
-  leading edge and the full mapped set; a color toggle switches spheres between log2FC
-  and category coloring (auto-set on select/deselect); a "Cat." column shows per site
-  how many categories it belongs to; the category table reports "sites in catalog /
-  total member sites" so partial catalogs are visible, not silent.
-- `--sheet <name>` selects the sheet of an Excel workbook input (e.g. `DPA` in the
-  combined `PTM_results.xlsx`); the first sheet remains the default.
-- The three left tables carry title bars (Categories, Proteins, PTM sites), and the
-  left column is resizable: drag the splitter between the tables and the 3D viewer.
-- `examples/enrichment/` ships small GSEAResult JSONs (subset of the o40094 DPA
-  enrichments matching the bundled top-20 CSV), and `make example` passes them, so the
-  category selector is testable locally without a pipeline run.
-- A global contrast dropdown in the toolbar scopes the category table, the site table,
-  the 3D panels (one per contrast under "All contrasts"), and the protein table's
-  Sig./Max FC columns, which now come from per-contrast stats in the catalog
-  (`contrast_stats`).
-
-### Changed (unreleased)
-
-- The pipeline now processes **all proteins with at least one significant site** by
-  default; `--max_proteins` remains as an explicit cap (used for tests and the example).
-- The table view's layout: three stacked tables on the left (categories, proteins,
-  sites — all seven site columns kept, compact fonts), the 3D viewer fills the right.
-- With more than 50 sites drawn in one panel, site labels are shown only for category
-  members and the highlighted site, keeping large proteins legible and fast.
-
-- A second browser app, `lit.html`, where all data selection lives in two Tabulator
-  tables: a protein catalog table (row click loads the protein) and a PTM site table
-  with header filters — a contrast dropdown, an FDR `<=` significance filter, a
-  `|log2FC| >=` effect-size filter, and text filters (site, sequence window); the
-  p-value column is omitted, and the pLDDT/Exposure headers carry explanatory
-  tooltips. The 3D area always shows exactly the table's filtered rows, split into
-  one labeled 3Dmol panel per contrast, so the same site in several contrasts
-  appears side by side; selecting a row (or clicking a sphere) only highlights and
-  centers that site, never changing which sites are drawn. Clicking a
-  site row pans the camera to the residue at the current zoom level and emphasizes it
-  (larger sphere, highlighted label) instead of the earlier abrupt zoom — the same
-  behavior applies in the classic app. Built on the
-  rawDIAGQC stack (Lit, Tabulator, cbor-x, pinned via `vendor/` shims). The classic
-  app links to it ("Table view") and back ("Classic view").
-- Data files and the catalog are now written as CBOR by default (`cbor2`), decoded in
-  the browser by cbor-x; `--format json` keeps the plain-JSON output. The format is a
-  `PayloadWriter` (JSON or CBOR) chosen once at the CLI and injected into the pipeline.
-
-- Packaged the toolkit as an installable Python project (`pyproject.toml`, uv, src layout)
-  with a `ptm3d` console script.
-- Test suite covering the data loader, structural annotations, structure fetching
-  (network stubbed), both exporters, the pipeline, and the CLI.
-- Import Linter contract enforcing the `cli -> pipeline -> leaf modules` dependency
-  direction, and Ruff lint/format configuration.
-- `examples/PTM_no_ERK_vs_ERK_top20.csv`: a small real prophosqua result (mouse phospho,
-  top 20 significant proteins) for demos and as a loader regression fixture.
-- Makefile with the standard FGCZ Python targets (`sync`, `format`, `lint`, `deps`,
-  `test`, `build`, `check`, `clean`), following the `python_package_template` convention.
-
-### Changed
-
-- The log2FC color scale is now the classic green-white-red (green = down, red = up)
-  instead of blue-white-red, in both browser apps, the standalone HTML dashboards,
-  and the PyMOL scripts — it no longer clashes with the blue/cyan pLDDT backbone
-  coloring.
-- In the table view, the protein catalog is a full-height panel on the left (viewer
-  and site table stack to its right) and gains a "Max FC" column: the signed log2FC
-  of each protein's strongest site, recorded as `max_log2fc` in the catalog.
-- `ptm3d serve` refreshes the browser app files in the output directory to the
-  installed ptm3d version before serving, and the server sends
-  `Cache-Control: no-cache`, so an old output folder or a cached browser module can
-  no longer show an outdated app.
-
-- The visualization now has two paths. New default path: the pipeline writes data files
-  (per-protein JSON under `data/`, a `data/catalog.json` run index, cached PDB models)
-  rendered by a static single-page JS app (`index.html` + `app.js`) copied into the
-  output directory, served with the new `ptm3d serve <dir>` command; its protein
-  selector replaces the old `index_3d.html` catalog page. The self-contained per-protein
-  HTML dashboards (`<gene>_<acc>_3d.html`, openable directly from disk) are still
-  written alongside; disable them with `--no-html`.
-- The CLI is built on cyclopts instead of argparse; flags (`--input/-i`, `--output_dir/-o`,
-  `--max_proteins/-m`, `--proteins/-p`) are unchanged, and `--version` is now available.
-- All tables are polars DataFrames instead of pandas; Excel files are read via
-  `fastexcel`, replacing the `pandas`/`openpyxl` dependencies.
-
-- Structure fetch failures now raise `StructureFetchError`; the pipeline logs and skips
-  the affected protein, while all other errors propagate instead of being silently
-  swallowed per protein.
-- Logging goes through loguru instead of `print`.
-- The CA-neighbor exposure score (`ppse`) is computed with vectorized numpy instead of a
-  Python double loop.
-- Import from concrete modules (e.g. `from ptm3d.data_loader import load_ptm_data`);
-  `ptm3d/__init__.py` no longer re-exports the API.
+- The project, Python package, command, cache root, and prepared-folder metadata use `proptm3d`; the earlier pre-release `ptm3d` name is retired.
 
 ### Removed
 
-- Two inert `set b_factor_min/max` lines from generated PyMOL scripts (not real PyMOL
-  settings; coloring is done via `set_color`).
-- The unused `jinja2` dependency from the documented requirements.
+- The pre-release Excel/CSV pipeline, CBOR browser payloads, PyMOL and standalone per-protein exporters, and dual classic/table JavaScript applications are no longer supported. Their last browser sources and tests remain available in `legacy/legacy-browser-2026-09-23.zip` for historical reference only.

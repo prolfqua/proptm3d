@@ -6,85 +6,18 @@ import json
 import os
 import stat
 import tempfile
-from collections import Counter
 from collections.abc import Iterator
 from contextlib import contextmanager
-from html import escape
 from io import BytesIO
 from pathlib import Path, PurePosixPath
 from zipfile import ZIP_STORED, ZipFile, ZipInfo
 
 import polars as pl
 
-from proptm3d.prepared_root import available_methods, method_files
+from proptm3d.prepared_root import available_methods, method_chooser_html, method_files
 
 BUNDLE_KIND = "proptm3d-static-bundle"
 SERVER_FILES = ("serve.py", "serve.sh", "serve.bat")
-METHOD_DESCRIPTIONS = {
-    "DPA": (
-        "Differential PTM abundance",
-        "Tests whether phosphosite intensity changes between conditions.",
-    ),
-    "DPU": (
-        "Differential PTM usage",
-        "Tests whether site intensity changes relative to total protein abundance.",
-    ),
-    "CF-DPU": (
-        "Correct-first DPU",
-        "Tests protein-corrected phosphosite abundance between conditions.",
-    ),
-}
-
-
-def method_chooser_html(root: Path, methods: tuple[str, ...]) -> str:
-    """Render the self-contained overview used by bundles and prepared-root serving."""
-    manifests = [
-        json.loads((root / method / "data" / "run.json").read_text()) for method in methods
-    ]
-    rows = []
-    for method, manifest in zip(methods, manifests, strict=True):
-        title, description = METHOD_DESCRIPTIONS[method]
-        counts = manifest["counts"]
-        rows.append(
-            "<tr>"
-            f'<th scope="row">{escape(method)}'
-            f'<span class="method-detail">{escape(title)} — {escape(description)}</span></th>'
-            f'<td class="number">{counts["proteins"]:,}</td>'
-            f'<td class="number">{counts["measured_sites"]:,}</td>'
-            f'<td class="number">{counts["complete_result_sites"]:,}</td>'
-            f'<td class="number">{len(manifest["contrasts"]):,}</td>'
-            f'<td><a class="open" href="{escape(method, quote=True)}/index.html"'
-            f' aria-label="Open {escape(method, quote=True)} viewer">Open viewer →</a></td>'
-            "</tr>"
-        )
-    contrasts = {name for manifest in manifests for name in manifest["contrasts"]}
-    sample_groups = {
-        sample["sample"]: sample["condition"]
-        for manifest in manifests
-        for sample in manifest["samples"]
-    }
-    group_counts = Counter(sample_groups.values())
-    sample_summary = " + ".join(str(count) for _, count in sorted(group_counts.items()))
-    group_detail = " · ".join(
-        f"{escape(group)}: {count}" for group, count in sorted(group_counts.items())
-    )
-    proteomes = ", ".join(sorted({manifest["proteome"] for manifest in manifests}))
-    uniprot_releases = ", ".join(sorted({m["uniprot_release"] for m in manifests}))
-    alphafold_versions = ", ".join(sorted({m["alphafold_archive_version"] for m in manifests}))
-    provenance = (
-        f"Proteome {proteomes} · UniProt {uniprot_releases} · AlphaFold {alphafold_versions}"
-    )
-    template = Path(__file__).with_name("bundle_server").joinpath("overview.html").read_text()
-    return (
-        template.replace("{{GROUP_COUNT}}", str(len(group_counts)))
-        .replace("{{GROUP_LABEL}}", "Group" if len(group_counts) == 1 else "Groups")
-        .replace("{{CONTRAST_COUNT}}", str(len(contrasts)))
-        .replace("{{CONTRAST_LABEL}}", "Contrast" if len(contrasts) == 1 else "Contrasts")
-        .replace("{{SAMPLE_SUMMARY}}", sample_summary)
-        .replace("{{GROUP_DETAIL}}", group_detail)
-        .replace("{{PROVENANCE}}", escape(provenance))
-        .replace("{{METHOD_ROWS}}", "\n".join(rows))
-    )
 
 
 def _write_file(archive: ZipFile, name: str, contents: str | bytes, *, mode: int = 0o644) -> None:
@@ -220,46 +153,57 @@ def bundle_prepared_root(
     return destination
 
 
+def _validate_open_bundle(archive: ZipFile, archive_path: Path) -> dict:
+    names = archive.namelist()
+    if len(names) != len(set(names)) or any(
+        PurePosixPath(name).is_absolute()
+        or ".." in PurePosixPath(name).parts
+        or "\\" in name
+        or not stat.S_ISREG(item.external_attr >> 16)
+        for name, item in ((item.filename, item) for item in archive.infolist())
+    ):
+        msg = f"Unsafe bundle entries in {archive_path}"
+        raise ValueError(msg)
+    if "bundle.json" not in names:
+        msg = f"Not a proptm3d browser bundle: {archive_path}"
+        raise ValueError(msg)
+    manifest = json.loads(archive.read("bundle.json"))
+    methods = manifest.get("methods")
+    if (
+        manifest.get("kind") != BUNDLE_KIND
+        or manifest.get("schema_version") != "1"
+        or manifest.get("layout") not in {"single", "all"}
+        or not isinstance(methods, list)
+        or not methods
+        or any(
+            not isinstance(method, str) or method not in {"DPA", "DPU", "CF-DPU"}
+            for method in methods
+        )
+    ):
+        msg = f"Not a proptm3d browser bundle: {archive_path}"
+        raise ValueError(msg)
+    required = {"index.html", "bundle.json"}
+    prefix = "" if manifest["layout"] == "single" else None
+    for method in methods:
+        method_prefix = prefix if prefix is not None else f"{method}/"
+        required.update({f"{method_prefix}index.html", f"{method_prefix}data/run.json"})
+    if (manifest["layout"] == "single" and len(methods) != 1) or not required.issubset(names):
+        msg = f"Incomplete proptm3d browser bundle: {archive_path}"
+        raise ValueError(msg)
+    return manifest
+
+
+def validate_bundle(archive_path: Path) -> dict:
+    """Validate a portable proptm3d bundle without extracting it."""
+    with ZipFile(archive_path) as archive:
+        return _validate_open_bundle(archive, archive_path)
+
+
 @contextmanager
 def extracted_bundle(archive_path: Path) -> Iterator[Path]:
     """Extract a validated proptm3d ZIP to a temporary static-server root."""
     with ZipFile(archive_path) as archive:
-        names = archive.namelist()
-        if len(names) != len(set(names)) or any(
-            PurePosixPath(name).is_absolute()
-            or ".." in PurePosixPath(name).parts
-            or "\\" in name
-            or not stat.S_ISREG(item.external_attr >> 16)
-            for name, item in ((item.filename, item) for item in archive.infolist())
-        ):
-            msg = f"Unsafe bundle entries in {archive_path}"
-            raise ValueError(msg)
-        if "bundle.json" not in names:
-            msg = f"Not a proptm3d browser bundle: {archive_path}"
-            raise ValueError(msg)
-        manifest = json.loads(archive.read("bundle.json"))
-        methods = manifest.get("methods")
-        if (
-            manifest.get("kind") != BUNDLE_KIND
-            or manifest.get("schema_version") != "1"
-            or manifest.get("layout") not in {"single", "all"}
-            or not isinstance(methods, list)
-            or not methods
-            or any(
-                not isinstance(method, str) or method not in {"DPA", "DPU", "CF-DPU"}
-                for method in methods
-            )
-        ):
-            msg = f"Not a proptm3d browser bundle: {archive_path}"
-            raise ValueError(msg)
-        required = {"index.html", "bundle.json"}
-        prefix = "" if manifest["layout"] == "single" else None
-        for method in methods:
-            method_prefix = prefix if prefix is not None else f"{method}/"
-            required.update({f"{method_prefix}index.html", f"{method_prefix}data/run.json"})
-        if (manifest["layout"] == "single" and len(methods) != 1) or not required.issubset(names):
-            msg = f"Incomplete proptm3d browser bundle: {archive_path}"
-            raise ValueError(msg)
+        _validate_open_bundle(archive, archive_path)
         with tempfile.TemporaryDirectory(prefix="proptm3d-serve-") as temporary:
             archive.extractall(temporary)
             yield Path(temporary)

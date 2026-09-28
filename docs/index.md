@@ -6,10 +6,12 @@
 :maxdepth: 2
 
 quickstart
+browser
 data
 bundles
+bfabric
 api
 development
 ```
 
-The supported methods are DPA, DPU, and CF-DPU. Preparation writes Parquet tables; completed GSEA input may contain CBOR artifacts, but the served browser package does not. The browser does not contact UniProt, STRING, or AlphaFold for data.
+The supported methods are DPA, DPU, and CF-DPU. Preparation writes Parquet tables; completed GSEA input contains raw gzipped protsea JSON documents, but the served browser package does not. The browser does not contact UniProt, STRING, or AlphaFold for data.

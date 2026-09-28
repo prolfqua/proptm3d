@@ -4,20 +4,38 @@ from __future__ import annotations
 
 import shlex
 import sys
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 
 from cyclopts import App, Parameter
+from rich.console import Console
+from rich.progress import (
+    BarColumn,
+    DownloadColumn,
+    Progress,
+    TaskID,
+    TaskProgressColumn,
+    TextColumn,
+    TimeRemainingColumn,
+    TransferSpeedColumn,
+)
 
 from proptm3d import (
     alphafold_cache,
+    bfabric_upload,
     prepared_history,
     prepared_root,
     structural_context_cache,
+    upload_cache,
     webapp,
 )
 from proptm3d import bundle as bundling
 from proptm3d import prepare as preparation
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 Method = Literal["DPA", "DPU", "CF-DPU"]
 Organism = Literal["HUMAN", "MOUSE"]
@@ -38,8 +56,88 @@ app.command(prepare_app)
 app.command(cache_app)
 
 
-def _preparation_target(first: str, folder: Path | None) -> tuple[Path, tuple[str, ...]]:
+@dataclass(slots=True)
+class _TerminalUploadProgress:
+    """Render bfabricPy transfer callbacks as persistent terminal progress bars."""
+
+    progress: Progress
+    tasks: dict[str, TaskID] = field(default_factory=dict)
+    totals: dict[str, int] = field(default_factory=dict)
+
+    def on_start(self, total_files: int, total_bytes: int) -> None:
+        """Report size after bfabricPy finishes setup and duplicate checks."""
+        noun = "file" if total_files == 1 else "files"
+        self.progress.console.print(
+            f"Starting transfer: {total_files} {noun}, {total_bytes / 1024**2:.1f} MiB"
+        )
+
+    def on_progress(self, filename: str, bytes_done: int, total: int) -> None:
+        """Update the progress bar for one transferred file."""
+        task_id = self.tasks.get(filename)
+        if task_id is None:
+            task_id = self.progress.add_task(filename, total=total)
+            self.tasks[filename] = task_id
+        self.totals[filename] = total
+        self.progress.update(task_id, completed=bytes_done, total=total)
+
+    def on_file_done(self, filename: str, success: bool) -> None:
+        """Mark one transfer as finished while retaining its final bar."""
+        task_id = self.tasks.get(filename)
+        if task_id is None:
+            task_id = self.progress.add_task(filename, total=1)
+            self.tasks[filename] = task_id
+        mark = "[green]✓[/]" if success else "[red]✗[/]"
+        if success:
+            self.progress.update(
+                task_id,
+                completed=self.totals.get(filename, 1),
+                description=f"{mark} {filename}",
+                refresh=True,
+            )
+        else:
+            self.progress.update(
+                task_id,
+                description=f"{mark} {filename}",
+                refresh=True,
+            )
+
+
+@contextmanager
+def _upload_progress() -> Iterator[bfabric_upload.UploadProgressCallbacks | None]:
+    """Provide live upload callbacks only for an interactive terminal."""
+    if not sys.stderr.isatty():
+        yield None
+        return
+    progress = Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        DownloadColumn(),
+        TransferSpeedColumn(),
+        TimeRemainingColumn(),
+        console=Console(file=sys.stderr),
+    )
+    reporter = _TerminalUploadProgress(progress)
+    with progress:
+        yield bfabric_upload.UploadProgressCallbacks(
+            on_start=reporter.on_start,
+            on_progress=reporter.on_progress,
+            on_file_done=reporter.on_file_done,
+        )
+
+
+def _default_preparation_folder(input_file: Path) -> Path:
+    return input_file.parent / f"proptm3d_{input_file.stem}"
+
+
+def _preparation_target(
+    first: str | None, folder: Path | None, input_file: Path
+) -> tuple[Path, tuple[str, ...]]:
+    if first is None:
+        return _default_preparation_folder(input_file), tuple(preparation.METHOD_SPECS)
     if folder is None:
+        if first in preparation.METHOD_SPECS:
+            return _default_preparation_folder(input_file), (first,)
         return Path(first), tuple(preparation.METHOD_SPECS)
     if first not in preparation.METHOD_SPECS:
         choices = ", ".join(preparation.METHOD_SPECS)
@@ -116,31 +214,33 @@ def _print_prepared(manifests: list[dict], output_dir: Path) -> None:
 
 @prepare_app.command(name="stats")
 def prepare_stats(
-    folder_or_method: str,
+    folder_or_method: str | None = None,
     folder: Path | None = None,
     *,
     input_file: Annotated[Path, Parameter(name="--input")],
 ) -> None:
     """Prepare quantification and DEA Parquet tables, including cached structure context."""
-    output_dir, methods = _preparation_target(folder_or_method, folder)
     _require_input(input_file, "stats")
+    output_dir, methods = _preparation_target(folder_or_method, folder, input_file)
     manifests = preparation.prepare_stats(input_file, output_dir, methods)
     prepared_history.register(output_dir)
+    upload_cache.record_preparation(input_file, output_dir)
     _print_prepared(manifests, output_dir)
 
 
 @prepare_app.command(name="gsea")
 def prepare_gsea(
-    folder_or_method: str,
+    folder_or_method: str | None = None,
     folder: Path | None = None,
     *,
     input_file: Annotated[Path, Parameter(name="--input")],
 ) -> None:
     """Prepare stats plus GSEA Parquet tables from a completed PTM delivery ZIP."""
-    output_dir, methods = _preparation_target(folder_or_method, folder)
     _require_input(input_file, "gsea")
+    output_dir, methods = _preparation_target(folder_or_method, folder, input_file)
     manifests = preparation.prepare_gsea(input_file, output_dir, methods)
     prepared_history.register(output_dir)
+    upload_cache.record_preparation(input_file, output_dir)
     _print_prepared(manifests, output_dir)
 
 
@@ -211,19 +311,17 @@ def serve(
                 raise ValueError(msg)
             methods = prepared_root.available_methods(path)
             entries = {entry.name for entry in path.iterdir()}
+            index = path / "index.html"
             if (
                 not methods
-                or entries != set(methods)
+                or entries != {*methods, "index.html"}
+                or index.is_symlink()
+                or not index.is_file()
                 or any((path / method).is_symlink() for method in methods)
             ):
                 msg = f"Not a prepared output folder: {path}"
                 raise ValueError(msg)
-            prepared_history.register(path)
-            webapp.serve(
-                path.resolve(),
-                port=port,
-                landing_page=bundling.method_chooser_html(path, methods),
-            )
+            webapp.serve(path.resolve(), port=port)
             return
         if path.suffix.lower() != ".zip":
             msg = "Pass a prepared FOLDER, METHOD FOLDER, or a proptm3d bundle.zip to serve"
@@ -242,29 +340,35 @@ def serve(
     if not preparation.is_prepared(directory, target):
         msg = f"No prepared {target} directory at {directory}"
         raise ValueError(msg)
-    prepared_history.register(folder)
     webapp.serve(directory, port=port)
 
 
 @app.command
 def bundle(
-    *methods: Method,
+    *targets: str,
     input_dir: Annotated[Path | None, Parameter(name="--in")] = None,
     output_file: Annotated[Path | None, Parameter(name="--out")] = None,
     include_server: bool = True,
 ) -> None:
     """List prepared folders, or write a portable ZIP with local server launchers."""
+    methods = targets
     if input_dir is None:
-        if methods or output_file is not None:
-            msg = "Pass --in FOLDER to bundle a method or all methods"
+        if len(targets) == 1 and (
+            Path(targets[0]).is_dir() or targets[0] not in preparation.METHOD_SPECS
+        ):
+            input_dir = Path(targets[0])
+            methods = ()
+        elif targets or output_file is not None:
+            msg = "Pass FOLDER for all methods, or METHODS --in FOLDER for a subset"
             raise ValueError(msg)
-        folders = prepared_history.prepared_folders()
-        if not folders:
-            print("No prepared folders recorded yet.")
-        for folder in folders:
-            methods = prepared_root.available_methods(folder)
-            print(f"{folder}: {', '.join(methods) if methods else 'unavailable'}")
-        return
+        else:
+            folders = prepared_history.prepared_folders()
+            if not folders:
+                print("No prepared folders recorded yet.")
+            for folder in folders:
+                available = prepared_root.available_methods(folder)
+                print(f"{folder}: {', '.join(available) if available else 'unavailable'}")
+            return
     try:
         output = bundling.bundle_prepared_root(
             input_dir, methods or None, output_file, include_server=include_server
@@ -273,9 +377,87 @@ def bundle(
         print(f"{error}\nUse another --out path, or move the existing ZIP first.", file=sys.stderr)
         raise SystemExit(2) from None
     prepared_history.register(input_dir)
+    upload_cache.record_bundle(input_dir, output)
     bundled = ", ".join(methods or prepared_root.available_methods(input_dir))
     print(f"Bundled {bundled}")
     print(f"  ZIP: {output} ({output.stat().st_size / 1024**3:.2f} GiB)")
+
+
+@app.command
+def upload(
+    order_id: int,
+    workunit_name: str,
+    bundle_file: Path | None = None,
+    /,
+) -> None:
+    """Upload an explicit bundle or confirm the latest cached PTM/proptm3d pair."""
+    try:
+        if bundle_file is not None:
+            artifact = bfabric_upload.Proptm3dArtifact(bundle_file)
+            with _upload_progress() as progress:
+                receipts = bfabric_upload.upload_artifacts(
+                    (artifact,),
+                    order_id,
+                    workunit_name,
+                    progress=progress,
+                )
+        else:
+            pair = upload_cache.latest_upload_pair(prepared_history.prepared_folders())
+            artifacts = bfabric_upload.artifacts_for(pair)
+            for artifact in artifacts:
+                artifact.validate()
+            print("Discovered upload pair:")
+            for artifact in artifacts:
+                size = artifact.path.stat().st_size / 1024**2
+                print(
+                    f"  {artifact.application_name} (application {artifact.application_id}): "
+                    f"{artifact.path.resolve()} ({size:.1f} MiB)"
+                )
+            if input("Is this the correct pair? [Y/n] ").strip().lower() in {"n", "no"}:
+                pipeline_path = input("PTM Pipeline result ZIP: ").strip()
+                proptm3d_path = input("proptm3d bundle ZIP: ").strip()
+                if not pipeline_path or not proptm3d_path:
+                    msg = "Both artifact paths are required"
+                    raise ValueError(msg)
+                pair = upload_cache.pair_from_paths(
+                    Path(pipeline_path),
+                    Path(proptm3d_path),
+                )
+                artifacts = bfabric_upload.artifacts_for(pair)
+                for artifact in artifacts:
+                    artifact.validate()
+                upload_cache.record_pair(pair)
+                print("Selected upload pair:")
+                for artifact in artifacts:
+                    size = artifact.path.stat().st_size / 1024**2
+                    print(
+                        f"  {artifact.application_name} (application {artifact.application_id}): "
+                        f"{artifact.path.resolve()} ({size:.1f} MiB)"
+                    )
+            print(f"B-Fabric order {order_id}; workunit name {workunit_name!r}")
+            if input("Upload both as separate workunits? [y/N] ").strip().lower() not in {
+                "y",
+                "yes",
+            }:
+                print("Upload cancelled.")
+                return
+            with _upload_progress() as progress:
+                receipts = bfabric_upload.upload_pair(
+                    pair,
+                    order_id,
+                    workunit_name,
+                    progress=progress,
+                )
+    except (OSError, ValueError, RuntimeError) as error:
+        print(str(error), file=sys.stderr)
+        raise SystemExit(2) from None
+    for receipt in receipts:
+        uploaded = receipt.summary.uploads[0]
+        filename = receipt.artifact.path.resolve().name
+        print(f"Uploaded {filename} to {receipt.artifact.application_name}")
+        print(f"  Workunit: {receipt.summary.workunit_id}")
+        print(f"  Resource: {uploaded.resource_id}")
+    print("  B-Fabric now performs its server-side storage checks.")
 
 
 def main() -> None:

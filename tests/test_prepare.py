@@ -8,7 +8,6 @@ import threading
 from urllib.request import urlopen
 from zipfile import ZipFile
 
-import cbor2
 import h5py
 import polars as pl
 import pytest
@@ -24,48 +23,32 @@ def isolated_prepared_history(tmp_path, monkeypatch):
     monkeypatch.setattr(cli.prepared_history, "history_path", lambda: tmp_path / "history.json")
 
 
-def _gsea_artifact(analysis="DPA"):
-    document = json.dumps(
-        {
-            "data": {
-                "a_vs_b": {
-                    "categories": {
-                        "PTM-SEA": {
-                            "terms": [
-                                {
-                                    "term_id": "KINASE_X",
-                                    "description": "Kinase X",
-                                    "enrichment_score": 1.5,
-                                    "direction": "top",
-                                    "fdr": 0.01,
-                                    "method": "fgsea",
-                                    "genes_mapped": 2,
-                                    "genes_in_set": 3,
-                                    "gene_ids": ["ASAA", "AATA"],
-                                    "leading_edge_ids": ["ASAA"],
-                                }
-                            ]
-                        }
+def _gsea_artifact():
+    document = {
+        "data": {
+            "a_vs_b": {
+                "categories": {
+                    "PTM-SEA": {
+                        "terms": [
+                            {
+                                "term_id": "KINASE_X",
+                                "description": "Kinase X",
+                                "enrichment_score": 1.5,
+                                "direction": "top",
+                                "fdr": 0.01,
+                                "method": "fgsea",
+                                "genes_mapped": 2,
+                                "genes_in_set": 3,
+                                "gene_ids": ["ASAA", "AATA"],
+                                "leading_edge_ids": ["ASAA"],
+                            }
+                        ]
                     }
                 }
             }
-        },
-        separators=(",", ":"),
-    )
-    wrapper = {
-        "format": "prophosqua_stage",
-        "version": "1.0.0",
-        "stage": "PTMSEA",
-        "analysis": analysis,
-        "statistics_sha256": "statistics-digest",
-        "document": {
-            "format": "string_gsea",
-            "version": "1.2.0",
-            "json": document,
-            "sha256": hashlib.sha256(document.encode()).hexdigest(),
-        },
+        }
     }
-    return gzip.compress(cbor2.dumps(wrapper))
+    return gzip.compress(json.dumps(document, separators=(",", ":")).encode())
 
 
 @pytest.fixture
@@ -217,9 +200,13 @@ def test_prepare_all_writes_method_scoped_payloads_and_clean(
         )
         assert [path.name for path in (folder / "pae").iterdir()] == [pae_link.name]
     stats = pl.read_parquet(root / "DPU" / "tables" / "site_stats.parquet")
-    assert stats.height == 3
+    assert stats.height == 2
     assert stats["effect"][0] == 0.6
+    assert stats["site_estimate_type"].unique().to_list() == ["observed"]
     assert prepared_root.available_methods(root) == ("DPA", "DPU", "CF-DPU")
+    overview = (root / "index.html").read_text()
+    assert "Choose an analysis method" in overview
+    assert all(f'href="{method}/index.html"' in overview for method in ("DPA", "DPU", "CF-DPU"))
     assert prepared_root.clean_prepared_root(root) == root.resolve()
     assert not root.exists()
     assert cache.is_dir()
@@ -270,10 +257,10 @@ def test_dpu_counts_complete_results_without_dropping_measured_sites(
     [manifest] = prepare.prepare_stats(prepared_h5mu, root, ("DPU",), tmp_path / "cache")
 
     assert manifest["counts"]["measured_sites"] == 3
-    assert manifest["counts"]["complete_result_sites"] == 2
+    assert manifest["counts"]["complete_result_sites"] == 1
     assert manifest["counts"]["complete_result_proteins"] == 1
     assert manifest["counts"]["complete_result_structures"] == 1
-    assert manifest["counts"]["measured_sites_without_result"] == 1
+    assert manifest["counts"]["measured_sites_without_result"] == 2
     assert pl.read_parquet(root / "DPU" / "tables" / "sites.parquet").height == 3
 
 
@@ -392,15 +379,9 @@ def test_prepare_reads_statistics_member_from_delivery_zip(prepared_h5mu, extern
     assert archive.is_file()
 
 
-def test_prepare_zip_requires_statistics_member(tmp_path):
-    archive = tmp_path / "PTM_example_statistics.zip"
-    with ZipFile(archive, "w") as output:
-        output.writestr("PTM_example/PTM_inputs.h5mu", b"input only")
-    with pytest.raises(ValueError, match=r"Expected exactly one PTM_statistics\.h5mu"):
-        prepare.prepare_stats(archive, tmp_path / "output_3d", ("DPA",))
-
-
-def test_prepare_gsea_writes_stats_and_gsea_parquet(prepared_h5mu, external_data, tmp_path):
+def test_prepare_reads_results_member_from_completed_delivery(
+    prepared_h5mu, external_data, tmp_path
+):
     results = tmp_path / "PTM_results.h5mu"
     shutil.copyfile(prepared_h5mu, results)
     with h5py.File(results, "r+") as handle:
@@ -408,10 +389,46 @@ def test_prepare_gsea_writes_stats_and_gsea_parquet(prepared_h5mu, external_data
     archive = tmp_path / "PTM_complete.zip"
     with ZipFile(archive, "w") as output:
         output.write(results, "PTM_example/PTM_results.h5mu")
-        output.writestr(
-            "PTM_example/PTM_DPA/result_ptm_sea.cbor.gz",
-            _gsea_artifact(),
+    root = tmp_path / "output_3d"
+
+    manifests = prepare.prepare_stats(archive, root, ("DPA",), tmp_path / "cache")
+
+    assert [item["method"] for item in manifests] == ["DPA"]
+    assert prepare.is_prepared(root / "DPA", "DPA")
+
+
+def test_prepare_zip_requires_statistics_member(tmp_path):
+    archive = tmp_path / "PTM_example_statistics.zip"
+    with ZipFile(archive, "w") as output:
+        output.writestr("PTM_example/PTM_inputs.h5mu", b"input only")
+    with pytest.raises(
+        ValueError,
+        match=r"Expected exactly one PTM_statistics\.h5mu or PTM_results\.h5mu",
+    ):
+        prepare.prepare_stats(archive, tmp_path / "output_3d", ("DPA",))
+
+
+def test_prepare_gsea_writes_stats_and_gsea_parquet(prepared_h5mu, external_data, tmp_path):
+    results = tmp_path / "PTM_results.h5mu"
+    shutil.copyfile(prepared_h5mu, results)
+    payload = _gsea_artifact()
+    relative_result = "PTM_DPA/result_ptm_sea.json.gz"
+    with h5py.File(results, "r+") as handle:
+        handle["uns/prophosqua/stage"][...] = "PTM_results"
+        namespace = handle["uns/prophosqua"]
+        files = namespace.create_group("enrichment_files")
+        checksums = namespace.create_group("enrichment_sha256")
+        string = h5py.string_dtype()
+        files.create_dataset("PTMSEA__DPA", data=relative_result, dtype=string)
+        checksums.create_dataset(
+            "PTMSEA__DPA",
+            data=hashlib.sha256(payload).hexdigest(),
+            dtype=string,
         )
+    archive = tmp_path / "PTM_complete.zip"
+    with ZipFile(archive, "w") as output:
+        output.write(results, "PTM_example/PTM_results.h5mu")
+        output.writestr(f"PTM_example/{relative_result}", payload)
 
     [manifest] = prepare.prepare_gsea(archive, tmp_path / "output_3d", ("DPA",), tmp_path / "cache")
 
@@ -430,7 +447,7 @@ def test_prepare_gsea_writes_stats_and_gsea_parquet(prepared_h5mu, external_data
     ]
     assert (folder / "tables" / "measurements.parquet").is_file()
     assert (folder / "tables" / "site_stats.parquet").is_file()
-    assert not list((folder).rglob("*.cbor"))
+    assert not list(folder.rglob("result_*.json.gz"))
 
 
 def test_prepare_gsea_requires_results_in_completed_delivery(prepared_h5mu, tmp_path):
@@ -580,7 +597,7 @@ def test_cli_serve_checks_manifest(tmp_path, monkeypatch):
     )
     cli.serve("DPA", tmp_path, port=3210)
     assert calls == [(tmp_path / "DPA", 3210)]
-    assert cli.prepared_history.prepared_folders() == (tmp_path.resolve(),)
+    assert cli.prepared_history.prepared_folders() == ()
 
 
 def test_cli_serve_refuses_symlinked_method(tmp_path, monkeypatch):
