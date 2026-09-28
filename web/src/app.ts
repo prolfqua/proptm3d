@@ -10,12 +10,17 @@ import { servedUrl } from './served-url.js'
 import { ALL_STRUCTURES, exposureLabel, isStructurallyFiltered, passesStructuralFilters, plddtLabel, regionLabel, structureDetail, structureLabel, type ExposureFilter, type RegionFilter, type StructuralFilters } from './structural.js'
 import { summarizeProteins, validCutoffs, type ProteinSummary } from './summary.js'
 import type { AppData, ProteinCatalogRow, ProteinDetail, SiteStructure, Thresholds } from './types.js'
+import {
+  buildUpSetFigure, computeUpSet, contrastsForIntersection, renderUpSet, rowsForIntersection,
+  type UpSetIntersection, type UpSetModel,
+} from './upset.js'
 import type { SiteMarker, StructureViewer } from './structure.js'
 import type { StructureColoring } from './structure-colors.js'
 
 type MainView = 'find' | 'protein' | 'abundance'
 type FindView = 'all' | 'single' | 'sequlogos'
 type DetailView = 'structure' | 'ntoc' | 'pae'
+type FindRow = ProteinSummary & { matching_sites: string[]; matching_site_labels: string[] }
 type PlotBackgrounds = { schema_version: '1'; plots: Record<string, {
   volcano: PlotBackground; protein_site: PlotBackground
 }> }
@@ -76,6 +81,13 @@ class PtmBrowserApp extends LitElement {
   private resizeFindPlotsAfterRender = false
   private focusedFigures: { volcano: FigureSpec; proteinSite: FigureSpec } | null = null
   private hoveredProteinId: string | null = null
+  private selectedIntersection: string | null = null
+  private intersectionFilterEnabled = false
+  private upSetModel: UpSetModel | null = null
+  private upSetModelKey: string | null = null
+  private renderedUpSetKey: string | null = null
+  private upSetRenderId = 0
+  private findScopeProteinCount = 0
   private focusPlotsPending = false
   private focusPlotsInProgress = false
   private focusPlotsIdle: Promise<void> = Promise.resolve()
@@ -100,6 +112,12 @@ class PtmBrowserApp extends LitElement {
           <dt>pLDDT</dt><dd>AlphaFold's per-residue local confidence score, 0–100; higher is more confident. It is not an exposure or disorder measurement.</dd>
           <dt>UniProt features</dt><dd>Prepared UniProt domains, regions, motifs, repeats, transmembrane segments and signal peptides. Generic Chain intervals are not colored. Only exact coordinates on a sequence-matched protein are colored; unannotated residues are gray. More specific feature types take precedence where intervals overlap.</dd>
           <dt>FDR and |log2FC|</dt><dd>A site passes only when FDR is strictly below the selected cutoff and absolute log2 fold change is strictly above the selected cutoff. These filters do not change the underlying abundance values.</dd>
+          <dt>UpSet intersections</dt>
+          <dd>
+            Each column is an exact set of contrasts in which the same phosphosite passes the active filters.
+            Clicking a bar or matrix dot restricts all workspaces to those sites and their proteins. Use the UpSet
+            selection toggle with the other filters to suspend or restore that restriction without losing the selection.
+          </dd>
         </dl>
       </aside>
       <div class="controls global-filters" role="group" aria-label="Site filters">
@@ -109,6 +127,13 @@ class PtmBrowserApp extends LitElement {
         <div class="control estimate"><label for="estimate-type">Estimate</label><select id="estimate-type" @change=${(event: Event) => this.changeEstimateType(event)}><option value="all">All</option><option value="observed">Observed</option><option value="lod_imputed">LOD imputed</option></select></div>
         <div class="control structural"><label for="exposure-filter">Exposure</label><select id="exposure-filter" title="Bludau prediction-aware exposure; sites without matched AlphaFold context are excluded unless All" @change=${() => this.changeStructuralFilters()}><option value="all">All</option><option value="exposed">Exposed</option><option value="buried">Buried</option></select></div>
         <div class="control structural"><label for="region-filter">Region</label><select id="region-filter" title="Bludau prediction-aware intrinsically disordered region; sites without matched AlphaFold context are excluded unless All" @change=${() => this.changeStructuralFilters()}><option value="all">All</option><option value="idr">IDR</option><option value="structured">Structured</option></select></div>
+        <div id="upset-filter-control" class="control upset-filter" hidden>
+          <span id="upset-filter-title" class="control-label">UpSet selection</span>
+          <button id="upset-filter-enabled" class="filter-toggle" type="button">
+            <span id="upset-filter-state" class="toggle-state">Off</span>
+            <span id="upset-filter-label">Apply selected sites</span>
+          </button>
+        </div>
         <div class="control global-search"><label for="find-search">Search</label><input id="find-search" type="search" placeholder="Gene, ID or accession" @input=${() => this.refreshSummary()} /></div>
       </div>
       <nav class="main-tabs" aria-label="Workspaces">
@@ -124,6 +149,16 @@ class PtmBrowserApp extends LitElement {
             <button type="button" data-find="sequlogos" aria-selected="false" @click=${() => this.showFind('sequlogos')}>Single contrast sequlogos</button>
           </nav>
           <div id="find-grid" class="find-grid all-contrasts">
+            <div id="upset-card" class="card upset-card">
+              <div class="card-title">
+                <span>Significant-site intersections</span>
+                <small id="upset-summary">Exact contrast membership</small>
+              </div>
+              <div class="card-body"><div id="upset-plot" class="upset-host"></div></div>
+              <div id="upset-note" class="metric-note">
+                Click an intersection bar or matrix dot to filter the protein table.
+              </div>
+            </div>
             <div class="card"><div class="card-title"><span id="find-count" class="scope-count">Proteins</span><small id="find-row-hint">Click a row to inspect its sites</small></div><div class="card-body flush"><div id="find-table" class="table-host"></div></div></div>
             <div id="focused-plots" class="focused-plots" hidden>
               <div class="card"><div class="card-body"><div id="focus-volcano-plot" class="plot-host"></div></div></div>
@@ -195,7 +230,13 @@ class PtmBrowserApp extends LitElement {
       </main>`
   }
 
-  protected firstUpdated(): void { void this.start() }
+  protected firstUpdated(): void {
+    this.el<HTMLButtonElement>('#upset-filter-enabled').addEventListener(
+      'click',
+      () => this.changeIntersectionFilter(),
+    )
+    void this.start()
+  }
 
   private toggleGuide(open = this.el('#reading-guide').hidden): void {
     this.el('#reading-guide').hidden = !open
@@ -237,7 +278,7 @@ class PtmBrowserApp extends LitElement {
       this.displayedContrast = this.data.run.contrasts[0] ?? ''
       this.el('#method-pill').textContent = this.data.run.method
       this.el('#run-counts').textContent = `${this.data.run.counts.proteins.toLocaleString()} proteins · ${this.data.run.counts.measured_sites.toLocaleString()} measured sites`
-      this.populateContrasts()
+      this.syncDisplayedContrasts(null)
       this.refreshSummary()
       this.setStatus('Ready · local prepared data')
     } catch (error) {
@@ -245,13 +286,19 @@ class PtmBrowserApp extends LitElement {
     }
   }
 
-  private populateContrasts(): void {
+  private syncDisplayedContrasts(intersection: UpSetIntersection | null): boolean {
+    const contrasts = contrastsForIntersection(this.data?.run.contrasts ?? [], intersection)
     const select = this.el<HTMLSelectElement>('#displayed-contrast')
-    select.replaceChildren()
-    for (const contrast of this.data?.run.contrasts ?? []) {
-      select.add(new Option(contrast, contrast))
+    const currentOptions = [...select.options].map((option) => option.value)
+    if (currentOptions.length !== contrasts.length
+      || currentOptions.some((contrast, index) => contrast !== contrasts[index])) {
+      select.replaceChildren()
+      for (const contrast of contrasts) select.add(new Option(contrast, contrast))
     }
+    const previous = this.displayedContrast
+    if (!contrasts.includes(this.displayedContrast)) this.displayedContrast = contrasts[0] ?? ''
     select.value = this.displayedContrast
+    return previous !== this.displayedContrast
   }
 
   private showMain(view: MainView): void {
@@ -283,6 +330,7 @@ class PtmBrowserApp extends LitElement {
       tab.setAttribute('aria-selected', String(tab.dataset.find === view))
     }
     this.el('#find-grid').hidden = view === 'sequlogos'
+    this.el('#upset-card').hidden = view !== 'all'
     this.el('#focused-plots').hidden = view !== 'single'
     this.el('#find-plots').hidden = view !== 'sequlogos'
     this.el('#find-row-hint').textContent = view === 'single'
@@ -326,6 +374,14 @@ class PtmBrowserApp extends LitElement {
     if (this.detail) void this.refreshDetail()
   }
 
+  private changeIntersectionFilter(): void {
+    this.intersectionFilterEnabled = !this.intersectionFilterEnabled
+    this.renderedUpSetKey = null
+    this.refreshSummary()
+    this.requestFindPlots(true)
+    if (this.detail) void this.refreshDetail()
+  }
+
   private showDetailView(view: DetailView): void {
     this.detailView = view
     for (const tab of this.querySelectorAll<HTMLButtonElement>('[data-detail]')) {
@@ -366,19 +422,146 @@ class PtmBrowserApp extends LitElement {
   private refreshSummary(): void {
     if (!this.data) return
     this.setHoveredProtein(null)
+    const visibleSites = this.visibleSiteIndex()
+    let proteins = this.data.proteins
+    let summarySites = visibleSites
+    const model = this.currentUpSetModel(visibleSites)
+    const selection = model.intersections.find(
+      (candidate) => candidate.key === this.selectedIntersection,
+    ) ?? null
+    if (this.selectedIntersection !== null && !selection) {
+      this.selectedIntersection = null
+      this.intersectionFilterEnabled = false
+    }
+    const activeIntersection = this.intersectionFilterEnabled ? selection : null
+    this.syncDisplayedContrasts(activeIntersection)
     const contrast = this.findView === 'all' ? null : this.displayedContrast
-    const summaries = summarizeProteins(this.data.proteins, this.visibleSiteIndex(), contrast, this.thresholds)
+    if (activeIntersection) {
+      summarySites = rowsForIntersection(visibleSites, activeIntersection)
+      proteins = proteins.filter((protein) => activeIntersection.sitesByProtein.has(protein.protein_Id))
+    }
+    if (this.findView === 'all') {
+      void this.refreshUpSet(model, selection)
+    } else {
+      this.syncUpSetControl(selection)
+    }
+    const siteLabels = new Map(summarySites.map((row) => [
+      `${row.protein_Id}\u0000${row.site}`,
+      row.modAA && row.posInProtein !== null ? `${row.modAA}${row.posInProtein}` : row.site.split('~', 1)[0],
+    ]))
+    const summaries: FindRow[] = summarizeProteins(proteins, summarySites, contrast, this.thresholds)
+      .map((summary) => {
+        const matchingSites = activeIntersection
+          ? [...(activeIntersection.sitesByProtein.get(summary.protein_Id) ?? [])]
+          : []
+        return {
+          ...summary,
+          measured_sites: activeIntersection ? matchingSites.length : summary.measured_sites,
+          matching_sites: matchingSites,
+          matching_site_labels: matchingSites.map((site) =>
+            siteLabels.get(`${summary.protein_Id}\u0000${site}`) ?? site.split('~', 1)[0]),
+        }
+      })
     const search = this.el<HTMLInputElement>('#find-search').value.trim().toLocaleLowerCase()
     const matching = search ? summaries.filter((row) => [row.gene_name, row.accession, row.protein_Id]
       .some((value) => value?.toLocaleLowerCase().includes(search))) : summaries
+    this.findScopeProteinCount = summaries.length
     this.el('#find-count').textContent = `${matching.length.toLocaleString()} / ${summaries.length.toLocaleString()} proteins`
     if (!this.findTable) this.createFindTable(matching)
     else void this.findTable.replaceData(matching)
+    if (activeIntersection) this.findTable!.showColumn('matching_site_labels')
+    else this.findTable!.hideColumn('matching_site_labels')
+  }
+
+  private upSetFilterKey(): string {
+    return [this.estimateType, this.thresholds.fdr, this.thresholds.absEffect,
+      this.structural.exposure, this.structural.region].join('\u0000')
+  }
+
+  private currentUpSetModel(rows: readonly AppData['siteIndex'][number][]): UpSetModel {
+    const key = this.upSetFilterKey()
+    if (!this.upSetModel || this.upSetModelKey !== key) {
+      this.upSetModel = computeUpSet(rows, this.data!.run.contrasts, this.thresholds)
+      this.upSetModelKey = key
+      this.renderedUpSetKey = null
+    }
+    return this.upSetModel
+  }
+
+  private async refreshUpSet(model: UpSetModel, selection: UpSetIntersection | null): Promise<void> {
+    const renderKey = [this.upSetModelKey ?? '', selection?.key ?? '', this.intersectionFilterEnabled].join('\u0000')
+    this.syncUpSetControl(selection)
+    this.el('#upset-summary').textContent = selection
+      ? `${selection.siteCount.toLocaleString()} sites in ${selection.proteinCount.toLocaleString()} proteins`
+        + (this.intersectionFilterEnabled ? '' : ' · filter paused')
+      : `${model.intersections.length.toLocaleString()} nonempty exact intersections`
+    this.el('#upset-note').textContent = selection
+      ? this.intersectionFilterEnabled
+        ? `${selection.contrasts.join(' ∩ ')} · every workspace uses only sites in this exact intersection.`
+        : `${selection.contrasts.join(' ∩ ')} · selection paused; use the UpSet selection toggle above`
+          + ' to restore it.'
+      : model.intersections.length > 0
+        ? 'Click an intersection bar or matrix dot to filter the protein table.'
+        : 'No sites pass the active statistical, estimate, and structural filters.'
+    if (this.renderedUpSetKey === renderKey) return
+    const id = ++this.upSetRenderId
+    try {
+      await renderUpSet(
+        this.el<HTMLDivElement>('#upset-plot'),
+        buildUpSetFigure(model, selection?.key ?? null),
+        (key) => this.selectIntersection(key),
+      )
+      if (id === this.upSetRenderId) this.renderedUpSetKey = renderKey
+    } catch (error) {
+      if (id === this.upSetRenderId) this.setStatus(error instanceof Error ? error.message : String(error), true)
+    }
+  }
+
+  private syncUpSetControl(selection: UpSetIntersection | null): void {
+    const control = this.el<HTMLDivElement>('#upset-filter-control')
+    const enabled = this.el<HTMLButtonElement>('#upset-filter-enabled')
+    control.hidden = selection === null
+    enabled.classList.toggle('is-active', selection !== null && this.intersectionFilterEnabled)
+    this.el('#upset-filter-state').textContent = this.intersectionFilterEnabled ? 'On' : 'Off'
+    this.el('#upset-filter-label').textContent = selection
+      ? `${selection.siteCount.toLocaleString()} sites in ${selection.proteinCount.toLocaleString()} proteins`
+      : 'Apply selected sites'
+    control.title = selection?.contrasts.join(' ∩ ') ?? ''
+  }
+
+  private selectIntersection(key: string | null): void {
+    if (key === null) {
+      this.selectedIntersection = null
+      this.intersectionFilterEnabled = false
+    } else if (key === this.selectedIntersection) {
+      this.intersectionFilterEnabled = !this.intersectionFilterEnabled
+    } else {
+      this.selectedIntersection = key
+      this.intersectionFilterEnabled = true
+    }
+    this.renderedUpSetKey = null
+    this.refreshSummary()
+    this.requestFindPlots(true)
+    if (this.detail) void this.refreshDetail()
+  }
+
+  private activeIntersection(): UpSetIntersection | null {
+    if (!this.intersectionFilterEnabled) return null
+    return this.upSetModel?.intersections.find(
+      (candidate) => candidate.key === this.selectedIntersection,
+    ) ?? null
   }
 
   private findPlotKey(): string {
     return [this.findView, this.displayedContrast, this.estimateType, this.thresholds.fdr,
-      this.thresholds.absEffect, this.structural.exposure, this.structural.region].join('\u0000')
+      this.thresholds.absEffect, this.structural.exposure, this.structural.region,
+      this.intersectionFilterEnabled ? this.selectedIntersection ?? '' : ''].join('\u0000')
+  }
+
+  private visiblePlotSites() {
+    const rows = this.visibleSiteIndex()
+    const intersection = this.activeIntersection()
+    return intersection ? rowsForIntersection(rows, intersection) : rows
   }
 
   private requestFindPlots(debounce = false): void {
@@ -427,10 +610,12 @@ class PtmBrowserApp extends LitElement {
     }
   }
 
-  private createFindTable(rows: ProteinSummary[]): void {
+  private createFindTable(rows: FindRow[]): void {
     const columns: ColumnDefinition[] = [
       { title: 'Gene', field: 'gene_name', frozen: true, minWidth: 105 },
       { title: 'Accession', field: 'accession', minWidth: 110 },
+      { title: 'Matching sites', field: 'matching_site_labels', minWidth: 180, visible: false,
+        formatter: (cell) => (cell.getValue() as string[]).join(', '), tooltip: true },
       { title: 'Measured sites', field: 'measured_sites', hozAlign: 'right', sorter: 'number', minWidth: 115 },
       { title: 'Tested sites', field: 'tested_sites', hozAlign: 'right', sorter: 'number', minWidth: 105 },
       { title: 'Significant sites', field: 'significant_sites', hozAlign: 'right', sorter: 'number', minWidth: 125 },
@@ -448,7 +633,9 @@ class PtmBrowserApp extends LitElement {
       initialSort: [{ column: 'significant_sites', dir: 'desc' }], placeholder: 'No proteins match the current search.',
     })
     this.findTable.on('rowClick', (_event, row) => {
-      void this.openProtein(row.getData() as ProteinCatalogRow)
+      const protein = row.getData() as FindRow
+      const intersection = this.activeIntersection()
+      void this.openProtein(protein, protein.matching_sites[0] ?? null, intersection?.contrasts[0])
     })
     this.findTable.on('rowMouseEnter', (_event, row) => {
       if (this.findView === 'single' && this.mainView === 'find') {
@@ -461,7 +648,7 @@ class PtmBrowserApp extends LitElement {
       }
     })
     this.findTable.on('dataFiltered', (_filters, visible) => {
-      this.el('#find-count').textContent = `${visible.length.toLocaleString()} / ${this.data!.proteins.length.toLocaleString()} proteins`
+      this.el('#find-count').textContent = `${visible.length.toLocaleString()} / ${this.findScopeProteinCount.toLocaleString()} proteins`
     })
   }
 
@@ -488,7 +675,7 @@ class PtmBrowserApp extends LitElement {
         const volcanoUpdate: ProteinTraceUpdate = focusProteinTraces(figures.volcano, proteinId)
         const scatterUpdate: ProteinTraceUpdate = focusProteinTraces(figures.proteinSite, proteinId)
         if (proteinId !== null) {
-          const rows = this.visibleSiteIndex()
+          const rows = this.visiblePlotSites()
           const plotted = plotThresholds(this.thresholds)
           const volcanoPoints = proteinBackgroundPoints(rows, proteinId, this.displayedContrast,
             'volcano', plotted.fdr, plotted.absEffect)
@@ -530,12 +717,16 @@ class PtmBrowserApp extends LitElement {
         if (view === 'all') break
         const key = this.findPlotKey()
         if (this.renderedFindPlotKey === key || this.findPlotTimer !== null) break
-        const siteIndex = this.visibleSiteIndex()
+        const siteIndex = this.visiblePlotSites()
+        const highlightIntersection = this.activeIntersection() !== null
         const contrast = this.displayedContrast
         const thresholds = plotThresholds(this.thresholds)
         const backgrounds = this.plotBackgrounds?.plots[contrast]
         if (!backgrounds) throw new Error(`Precomputed plot backgrounds are missing for ${contrast}.`)
-        const volcano = buildVolcanoFigure(siteIndex, contrast, thresholds.fdr, thresholds.absEffect, backgrounds.volcano)
+        const volcano = buildVolcanoFigure(
+          siteIndex, contrast, thresholds.fdr, thresholds.absEffect,
+          backgrounds.volcano, highlightIntersection,
+        )
         await this.focusPlotsIdle
         if (this.mainView !== 'find') break
         if (key !== this.findPlotKey()) continue
@@ -547,7 +738,7 @@ class PtmBrowserApp extends LitElement {
         }
         if (view === 'single') {
           const scatter = buildProteinSiteFigure(siteIndex, contrast, thresholds.fdr, thresholds.absEffect,
-            backgrounds.protein_site)
+            backgrounds.protein_site, highlightIntersection)
           this.el('#focus-protein-site-note').textContent = scatter.missingCount > 0
             ? `${scatter.missingCount.toLocaleString()} site results have no complete protein/site fold-change pair.`
             : 'All site results have protein and original-site effects.'
@@ -561,7 +752,7 @@ class PtmBrowserApp extends LitElement {
           this.focusedFigures = focusBase
         } else {
           const scatter = buildProteinSiteFigure(siteIndex, contrast, thresholds.fdr, thresholds.absEffect,
-            backgrounds.protein_site)
+            backgrounds.protein_site, highlightIntersection)
           const logos = computeLogos(siteIndex, contrast, thresholds)
           this.el('#protein-site-note').textContent = scatter.missingCount > 0
             ? `${scatter.missingCount.toLocaleString()} site results have no complete protein/site fold-change pair.` : 'All site results have protein and original-site effects.'
@@ -648,8 +839,10 @@ class PtmBrowserApp extends LitElement {
 
   private visibleDetailRows(): DetailRow[] {
     if (!this.detail) return []
-    return selectDetailRows(this.detail, this.displayedContrast, this.thresholds,
+    const rows = selectDetailRows(this.detail, this.displayedContrast, this.thresholds,
       this.estimateType, this.showAllSites, this.structural)
+    const intersection = this.activeIntersection()
+    return intersection ? rowsForIntersection(rows, intersection) : rows
   }
 
   private async refreshDetail(loadStructure = false): Promise<void> {

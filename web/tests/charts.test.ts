@@ -77,6 +77,29 @@ test('volcano uses the static black background and exposes only passing points b
   assert.throws(() => buildVolcanoFigure(rows, 'A_vs_B', 0.26, 1, volcanoBackground), RangeError);
 });
 
+test('active UpSet selection overlays selected sites that do not pass in the displayed contrast', () => {
+  const rows = [
+    result(),
+    result({ site: 'P12345_T20', effect: 0.5, fdr: 0.02, protein_fc: 0.4, original_site_fc: 0.5 }),
+    result({ site: 'P12345_Y30', effect: -2, fdr: 0.1, protein_fc: 0.4, original_site_fc: -1.5 }),
+  ];
+
+  const volcano = buildVolcanoFigure(rows, 'A_vs_B', 0.05, 1, volcanoBackground, true);
+  const volcanoSelection = volcano.data[2];
+  assert.deepEqual((volcanoSelection.customdata as unknown[][]).map((point) => point[1]),
+    ['P12345_T20', 'P12345_Y30']);
+  assert.equal((volcanoSelection.marker as { color: string }).color, '#d28b3b');
+  assert.match(String(volcanoSelection.name), /Selected, not passing/);
+
+  const scatter = buildProteinSiteFigure(
+    rows, 'A_vs_B', 0.05, 1, proteinSiteBackground, true,
+  ).figure;
+  const scatterSelection = scatter.data[2];
+  assert.deepEqual((scatterSelection.customdata as unknown[][]).map((point) => point[1]),
+    ['P12345_T20', 'P12345_Y30']);
+  assert.equal((scatterSelection.marker as { color: string }).color, '#d28b3b');
+});
+
 test('protein-site scatter uses original site and total protein effects and reports missing pairs', () => {
   const rows = [
     result({ effect: 8, original_site_fc: -1.5, protein_fc: 0.25 }),

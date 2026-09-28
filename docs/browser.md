@@ -4,7 +4,7 @@ Opening a multi-method prepared root or bundle first shows an analysis overview 
 
 ## Shared controls
 
-The controls above the workspaces select the FDR cutoff, minimum absolute log2 fold change, displayed contrast, estimate type, exposure class, predicted region, and protein search. A result passes the statistical filters only when its FDR is strictly below the cutoff and its absolute effect is strictly above the cutoff.
+The controls above the workspaces select the FDR cutoff, minimum absolute log2 fold change, displayed contrast, estimate type, exposure class, predicted region, and protein search. After choosing an UpSet intersection, an UpSet selection toggle appears with these controls and reports its site and protein counts in every workspace. While the toggle is on, Displayed contrast offers only contrasts belonging to the exact intersection; a single-contrast intersection therefore selects and shows only that contrast. Turning the toggle off restores the complete contrast list without forgetting the chosen intersection. A result passes the statistical filters only when its FDR is strictly below the cutoff and its absolute effect is strictly above the cutoff.
 
 Exposure and Region are independent structural annotations; they do not change whether a result is statistically significant. Both default to All. Selecting Exposed, Buried, IDR, or Structured excludes sites without matching AlphaFold structural context because those sites cannot satisfy the chosen category. The How to read this panel in the application explains the annotations and colors.
 
@@ -14,15 +14,15 @@ The protein tables, Protein detail, 3D markers, N-to-C markers, and Site abundan
 
 The Find proteins workspace has three views:
 
-- **All contrasts** summarizes measured, tested, significant, upregulated, and downregulated sites across the method's contrasts. Click a protein row to open Protein detail.
-- **Single contrast** places the contrast-specific protein table beside a volcano and a total-protein-versus-original-site fold-change scatter. Hover a protein row to isolate that protein's points temporarily; leaving the row restores the complete plot.
-- **Single contrast sequlogos** shows the complete interactive overlays plus Up, Down, and Up-minus-Down amino-acid frequency logos. Plot points open the corresponding protein and site.
+- **All contrasts** summarizes measured, tested, significant, upregulated, and downregulated sites across the method's contrasts. A site-level UpSet plot groups each phosphosite by the exact set of contrasts in which it passes the active filters. Clicking an intersection bar or matrix dot restricts the protein table and its result counts to those sites, shows their compact residue labels, and reports how many proteins bear them. The selection also restricts Protein detail and Site abundance. Click the selected intersection again or turn off the global UpSet selection toggle to see all sites without forgetting the intersection; click a protein row to open its first matching site.
+- **Single contrast** places the contrast-specific protein table beside a volcano and a total-protein-versus-original-site fold-change scatter. An active UpSet selection limits the interactive overlays to its sites: red and blue points pass in the displayed contrast, while amber points belong to the selected intersection but do not pass in this contrast. Hover a protein row to isolate that protein's selected points temporarily; leaving the row restores the complete selection overlay.
+- **Single contrast sequlogos** shows the same UpSet-aware interactive overlays plus Up, Down, and Up-minus-Down amino-acid frequency logos calculated only from selected sites that pass in the displayed contrast. Plot points open the corresponding protein and site.
 
 The volcano uses the selected method's effect and FDR. The protein-versus-site scatter always uses total-protein log2 fold change on the x-axis and original phosphosite log2 fold change on the y-axis, including for DPU and CF-DPU.
 
 ## Protein detail
 
-Protein detail lists sites for the displayed contrast. It shows only sites passing the shared statistical, estimate-type, and structural filters by default. **Show all sites** restores measured sites without a passing result while retaining the displayed contrast, estimate-type selection, and explicit structural filters.
+Protein detail lists sites for the displayed contrast. It shows only sites passing the shared statistical, estimate-type, structural, and active UpSet intersection filters by default. Turn off **UpSet selection** in the shared controls to remove only the intersection filter. **Show all sites** restores measured sites without a passing result while retaining the displayed contrast, estimate-type selection, explicit structural filters, and any active UpSet selection.
 
 The right side provides three linked views:
 

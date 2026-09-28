@@ -59,6 +59,7 @@ const COLORS = {
   baseline: '#44546b',
   proteinBand: 'rgba(215, 183, 77, 0.25)',
   selected: '#152d46',
+  intersection: '#d28b3b',
 } as const;
 
 const RESIDUE_COLORS: Record<string, string> = {
@@ -183,13 +184,33 @@ function scatterTraces(
   });
 }
 
-function focusedBackgroundTrace(xLabel: string, yLabel: string): Record<string, unknown> {
+function nonPassingTrace(
+  rows: readonly SiteIndexRow[],
+  x: (row: SiteIndexRow) => number | null,
+  y: (row: SiteIndexRow) => number | null,
+  fdrCutoff: number,
+  fcCutoff: number,
+  xLabel: string,
+  yLabel: string,
+  highlightIntersection: boolean,
+): Record<string, unknown> {
+  const points = highlightIntersection
+    ? rows.filter((row) => finite(x(row)) && finite(y(row)) && !passes(row, fdrCutoff, fcCutoff))
+    : [];
   return {
-    type: 'scattergl', mode: 'markers', name: 'Other sites', showlegend: false,
-    x: [], y: [], customdata: [],
-    marker: { color: '#000000', size: 5, opacity: 0.85 },
+    type: 'scattergl', mode: 'markers',
+    name: highlightIntersection ? `Selected, not passing (${points.length.toLocaleString()})` : 'Other sites',
+    showlegend: highlightIntersection && points.length > 0,
+    x: points.map(x),
+    y: points.map(y),
+    customdata: points.map((row) => [
+      row.protein_Id, row.site, row.contrast, row.gene_name ?? row.protein_Id, row.effect, row.fdr,
+    ]),
+    marker: { color: highlightIntersection ? COLORS.intersection : '#000000', size: 7, opacity: 0.9 },
     hovertemplate: '<b>%{customdata[3]}</b> · %{customdata[0]}<br>'
-      + `%{customdata[1]}<br>${xLabel}: %{x:.3f}<br>${yLabel}: %{y:.3f}<extra></extra>`,
+      + `%{customdata[1]}<br>${xLabel}: %{x:.3f}<br>${yLabel}: %{y:.3f}<br>`
+      + 'Method log2FC: %{customdata[4]:.3f}<br>'
+      + 'FDR: %{customdata[5]:.3g}<extra></extra>',
   };
 }
 
@@ -227,6 +248,7 @@ export function buildVolcanoFigure(
   fdrCutoff: number,
   fcCutoff: number,
   background: PlotBackground,
+  highlightIntersection = false,
 ): FigureSpec {
   if (!validThresholds(fdrCutoff, fcCutoff)) throw new RangeError('FDR must be ≤ 0.25 and |log2FC| must be ≥ 1.');
   const scoped = rows.filter((row) => row.contrast === contrast);
@@ -240,7 +262,16 @@ export function buildVolcanoFigure(
     'Method log2FC',
     '−log10(FDR)',
   );
-  traces.push(focusedBackgroundTrace('Method log2FC', '−log10(FDR)'));
+  traces.push(nonPassingTrace(
+    plotted,
+    (row) => row.effect,
+    (row) => finite(row.fdr) ? -Math.log10(Math.max(row.fdr, 1e-300)) : null,
+    fdrCutoff,
+    fcCutoff,
+    'Method log2FC',
+    '−log10(FDR)',
+    highlightIntersection,
+  ));
   const missing = scoped.length - plotted.length;
   const layout = baseLayout('Site effect and FDR', 390);
   layout.xaxis = { title: { text: 'Method log2 fold change' }, gridcolor: COLORS.grid,
@@ -270,6 +301,7 @@ export function buildProteinSiteFigure(
   fdrCutoff: number,
   fcCutoff: number,
   background: PlotBackground,
+  highlightIntersection = false,
 ): ScatterFigure {
   if (!validThresholds(fdrCutoff, fcCutoff)) throw new RangeError('FDR must be ≤ 0.25 and |log2FC| must be ≥ 1.');
   const scoped = rows.filter((row) => row.contrast === contrast);
@@ -289,7 +321,16 @@ export function buildProteinSiteFigure(
       data: [
         ...scatterTraces(scoped, (row) => row.protein_fc, (row) => row.original_site_fc,
           fdrCutoff, fcCutoff, 'Total-protein log2FC', 'Original site log2FC'),
-        focusedBackgroundTrace('Total-protein log2FC', 'Original site log2FC'),
+        nonPassingTrace(
+          scoped,
+          (row) => row.protein_fc,
+          (row) => row.original_site_fc,
+          fdrCutoff,
+          fcCutoff,
+          'Total-protein log2FC',
+          'Original site log2FC',
+          highlightIntersection,
+        ),
       ],
       layout,
     },

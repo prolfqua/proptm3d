@@ -12,7 +12,12 @@ interface PlotlyBundle {
     element: HTMLDivElement,
     data: Record<string, unknown>[],
     layout: Record<string, unknown>,
-    config: { responsive: boolean; displaylogo: boolean; modeBarButtonsToRemove: string[] },
+    config: {
+      responsive: boolean
+      displaylogo: boolean
+      displayModeBar?: boolean
+      modeBarButtonsToRemove: string[]
+    },
   ): Promise<PlotlyGraph>
   update(
     element: HTMLDivElement,
