@@ -174,7 +174,7 @@ def show_cache_status() -> None:
 
 
 def _require_input(input_file: Path, command: str) -> None:
-    if not input_file.is_file():
+    if not input_file.exists():
         print(f"Input not found: {input_file.resolve()}\n", file=sys.stderr)
         prepare_app.help_print(command)
         raise SystemExit(2)
@@ -235,7 +235,7 @@ def prepare_gsea(
     *,
     input_file: Annotated[Path, Parameter(name="--input")],
 ) -> None:
-    """Prepare stats plus GSEA Parquet tables from a completed PTM delivery ZIP."""
+    """Prepare stats plus GSEA tables from a completed PTM delivery ZIP or folder."""
     _require_input(input_file, "gsea")
     output_dir, methods = _preparation_target(folder_or_method, folder, input_file)
     manifests = preparation.prepare_gsea(input_file, output_dir, methods)

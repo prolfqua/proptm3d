@@ -8,7 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - A `proptm3d` command prepares DPA, DPU, and CF-DPU static browser sites from `PTM_statistics.h5mu`, statistics delivery ZIPs, or completed delivery ZIPs containing `PTM_results.h5mu`.
 - `prepare stats` exports measured proteins and sites, method-specific effects and FDRs, aligned sample evidence, original site and total-protein effects, UniProt annotations, AlphaFold model metadata, and structural context as Parquet tables.
-- `prepare gsea` validates completed PTM delivery artifacts and adds normalized PTM-SEA, KinaseLib, and MEA terms with full and leading-edge member windows as `gsea_terms.parquet`.
+- `prepare gsea` validates completed PTM delivery artifacts and adds contrast-scoped PTM-SEA, Kinase GSEA, and MEA sequence sets, exact site memberships, leading-edge assignments, and compact running-enrichment curves.
+- GSEA preparations add a fourth browser workspace with an interactive sequence-set volcano, sortable results, running-enrichment curve, result and sequence-set selectors, GSEA FDR, leading-edge mode, and an explicit toggle that applies the selected set across the existing linked workspaces.
 - `cache structures` and `cache context` manage reusable HUMAN and MOUSE AlphaFold v6 structures, PAE matrices, and the published Bludau/StructureMap prediction-aware exposure and IDR annotations.
 - A self-hosted TypeScript browser provides All contrasts, Single contrast, and Single contrast sequlogos discovery views; linked Protein detail and Site abundance workspaces; volcano, protein-versus-site, N-to-C, sequence-logo, abundance, 3D structure, and PAE views; and no runtime dependency on a CDN or external data API.
 - All contrasts includes a site-level UpSet plot of exact significance membership across contrasts. Selecting a bar or matrix dot filters the contrast choices, protein tables, per-contrast plot overlays, sequence logos, Protein detail, and Site abundance to the matching contrasts, sites, and proteins; a toggle beside the shared filters reports the selected site and protein counts in every workspace and suspends or restores the selection without forgetting it.
@@ -22,6 +23,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- `prepare stats` and `prepare gsea` accept either delivery ZIPs or their unpacked folders; statistics preparation prefers `PTM_results.h5mu` when both result and statistics stages are present.
 - `prepare stats` and `prepare gsea` now default to `proptm3d_<input basename>` beside the input when no output folder is supplied; omitting the method prepares all methods, while a method-only positional selects that method in the default folder.
 - `bundle FOLDER` now bundles every prepared method and writes the shared method-chooser entry page; `--in FOLDER` remains available when positional methods select a subset.
 - Completed PTM deliveries now work directly with `prepare stats`, and `prepare gsea` reads the current checksum-validated `result_*.json.gz` protsea documents recorded by `PTM_results.h5mu`.

@@ -42,7 +42,11 @@ def _gsea_artifact():
                                 "gene_ids": ["ASAA", "AATA"],
                                 "leading_edge_ids": ["ASAA"],
                             }
-                        ]
+                        ],
+                        "gsea_result": {
+                            "running_scores": {"KINASE_X": [0.0, 0.8, 1.5]},
+                            "hit_indices": {"KINASE_X": [0, 1]},
+                        },
                     }
                 }
             }
@@ -397,13 +401,25 @@ def test_prepare_reads_results_member_from_completed_delivery(
     assert prepare.is_prepared(root / "DPA", "DPA")
 
 
+def test_prepare_stats_reads_unpacked_delivery_folder(prepared_h5mu, external_data, tmp_path):
+    delivery = tmp_path / "delivery"
+    delivery.mkdir()
+    shutil.copyfile(prepared_h5mu, delivery / "PTM_statistics.h5mu")
+    root = tmp_path / "output_3d"
+
+    [manifest] = prepare.prepare_stats(delivery, root, ("DPA",), tmp_path / "cache")
+
+    assert manifest["preparation"] == "stats"
+    assert prepare.is_prepared(root / "DPA", "DPA")
+
+
 def test_prepare_zip_requires_statistics_member(tmp_path):
     archive = tmp_path / "PTM_example_statistics.zip"
     with ZipFile(archive, "w") as output:
         output.writestr("PTM_example/PTM_inputs.h5mu", b"input only")
     with pytest.raises(
         ValueError,
-        match=r"Expected exactly one PTM_statistics\.h5mu or PTM_results\.h5mu",
+        match=r"Expected PTM_statistics\.h5mu or PTM_results\.h5mu",
     ):
         prepare.prepare_stats(archive, tmp_path / "output_3d", ("DPA",))
 
@@ -436,18 +452,79 @@ def test_prepare_gsea_writes_stats_and_gsea_parquet(prepared_h5mu, external_data
     assert manifest["preparation"] == "gsea"
     assert manifest["counts"]["gsea_terms"] == 1
     assert manifest["counts"]["gsea_sources"] == 1
-    assert manifest["files"]["gsea_terms_parquet"] == "tables/gsea_terms.parquet"
-    terms = pl.read_parquet(folder / "tables" / "gsea_terms.parquet")
-    assert terms.select("term_id", "source", "gene_ids").to_dicts() == [
+    assert manifest["counts"]["gsea_memberships"] == 2
+    [result] = manifest["gsea"]["results"]
+    assert result["id"] == "PTMSEA"
+    files = result["contrasts"]["a_vs_b"]
+    terms = pl.read_parquet(folder / files["sequence_sets_parquet"])
+    assert terms.select("sequence_set", "source", "nes").to_dicts() == [
         {
-            "term_id": "KINASE_X",
+            "sequence_set": "KINASE_X",
             "source": "PTM-SEA",
-            "gene_ids": ["ASAA", "AATA"],
+            "nes": 1.5,
+        }
+    ]
+    memberships = pl.read_parquet(folder / files["memberships_parquet"])
+    assert memberships.select("sequence_set", "site", "is_leading_edge").to_dicts() == [
+        {
+            "sequence_set": "KINASE_X",
+            "site": "P12345_S2~ASAA",
+            "is_leading_edge": True,
+        },
+        {
+            "sequence_set": "KINASE_X",
+            "site": "P12345_T4~AATA",
+            "is_leading_edge": False,
+        },
+    ]
+    curves = pl.read_parquet(folder / files["curves_parquet"])
+    assert curves.select(
+        "sequence_set", "rank_indices", "running_scores", "hit_indices", "hit_scores"
+    ).to_dicts() == [
+        {
+            "sequence_set": "KINASE_X",
+            "rank_indices": [0, 1, 2],
+            "running_scores": [0.0, 0.8, 1.5],
+            "hit_indices": [0, 1],
+            "hit_scores": [0.0, 0.8],
         }
     ]
     assert (folder / "tables" / "measurements.parquet").is_file()
     assert (folder / "tables" / "site_stats.parquet").is_file()
     assert not list(folder.rglob("result_*.json.gz"))
+    assert files["curves_parquet"] in prepared_root.method_files(tmp_path / "output_3d", "DPA")
+    [replacement] = prepare.prepare_gsea(
+        archive, tmp_path / "output_3d", ("DPA",), tmp_path / "cache"
+    )
+    assert replacement["counts"]["gsea_terms"] == 1
+
+
+def test_prepare_gsea_reads_unpacked_delivery_folder(prepared_h5mu, external_data, tmp_path):
+    delivery = tmp_path / "delivery"
+    method = delivery / "PTM_DPA"
+    method.mkdir(parents=True)
+    results = delivery / "PTM_results.h5mu"
+    shutil.copyfile(prepared_h5mu, results)
+    payload = _gsea_artifact()
+    relative_result = "PTM_DPA/result_ptm_sea.json.gz"
+    (delivery / relative_result).write_bytes(payload)
+    with h5py.File(results, "r+") as handle:
+        handle["uns/prophosqua/stage"][...] = "PTM_results"
+        namespace = handle["uns/prophosqua"]
+        files = namespace.create_group("enrichment_files")
+        checksums = namespace.create_group("enrichment_sha256")
+        string = h5py.string_dtype()
+        files.create_dataset("PTMSEA__DPA", data=relative_result, dtype=string)
+        checksums.create_dataset(
+            "PTMSEA__DPA", data=hashlib.sha256(payload).hexdigest(), dtype=string
+        )
+
+    [manifest] = prepare.prepare_gsea(
+        delivery, tmp_path / "output_3d", ("DPA",), tmp_path / "cache"
+    )
+
+    assert manifest["counts"]["gsea_memberships"] == 2
+    assert manifest["gsea"]["results"][0]["contrasts"]["a_vs_b"]
 
 
 def test_prepare_gsea_requires_results_in_completed_delivery(prepared_h5mu, tmp_path):
@@ -461,7 +538,9 @@ def test_prepare_gsea_requires_results_in_completed_delivery(prepared_h5mu, tmp_
 
     with pytest.raises(ValueError, match="no GSEA results for: DPA"):
         prepare.prepare_gsea(archive, tmp_path / "output_3d", ("DPA",))
-    with pytest.raises(ValueError, match="requires a completed PTM delivery ZIP"):
+    with pytest.raises(
+        ValueError, match="requires a completed PTM delivery ZIP or unpacked folder"
+    ):
         prepare.prepare_gsea(results, tmp_path / "output_3d", ("DPA",))
 
     archive_without_results = tmp_path / "not_completed.zip"

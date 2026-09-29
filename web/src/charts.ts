@@ -725,6 +725,7 @@ export async function renderFigure(
   figure: FigureSpec,
   onSiteClick?: (point: SitePoint) => void,
   bundle: 'gl2d' | 'cartesian' = figure.data.some((trace) => trace.type === 'scattergl') ? 'gl2d' : 'cartesian',
+  onPointClick?: (customdata: unknown) => void,
 ): Promise<void> {
   const Plotly = bundle === 'gl2d'
     ? (await import('plotly.js-gl2d-dist-min')).default
@@ -736,7 +737,9 @@ export async function renderFigure(
     { responsive: true, displaylogo: false, modeBarButtonsToRemove: ['sendChartToCloud'] },
   );
   graph.removeAllListeners('plotly_click');
-  if (onSiteClick) {
+  if (onPointClick) {
+    graph.on('plotly_click', (event) => onPointClick(event.points[0]?.customdata))
+  } else if (onSiteClick) {
     graph.on('plotly_click', (event) => {
       const point = event.points[0]?.customdata;
       if (!Array.isArray(point) || point.length < 3) return;

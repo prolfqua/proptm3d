@@ -1,5 +1,9 @@
 import type {
   AppData,
+  GseaCurve,
+  GseaMembership,
+  GseaPayload,
+  GseaSequenceSet,
   MeasuredSite,
   Measurement,
   ProteinCatalogRow,
@@ -60,6 +64,16 @@ type ParquetContext = Omit<SiteStructuralContext, ParquetContextInteger> & {
 type ParquetResidueContext = Omit<ResidueContext, "fragment" | "position"> & {
   fragment: number | bigint;
   position: number | bigint;
+};
+
+type ParquetGseaSequenceSet = Omit<GseaSequenceSet, "genes_mapped" | "genes_in_set"> & {
+  genes_mapped: number | bigint;
+  genes_in_set: number | bigint;
+};
+
+type ParquetGseaCurve = Omit<GseaCurve, "rank_indices" | "hit_indices"> & {
+  rank_indices: Array<number | bigint>;
+  hit_indices: Array<number | bigint>;
 };
 
 const parquetTables = new Map<string, Promise<unknown[]>>();
@@ -225,6 +239,37 @@ export async function loadProteinDetail(
     residueContext: residueRows.flat().map((row) => ({
       fragment: Number(row.fragment), position: Number(row.position),
       plddt: row.plddt, is_exposed: row.is_exposed, is_idr: row.is_idr,
+    })),
+  };
+}
+
+export async function loadGseaPayload(
+  run: RunManifest,
+  resultId: string,
+  contrast: string,
+  baseUrl = document.baseURI,
+): Promise<GseaPayload | null> {
+  const result = run.gsea?.results.find((candidate) => candidate.id === resultId);
+  const files = result?.contrasts[contrast];
+  if (!result || !files) return null;
+  const [sets, memberships, curves] = await Promise.all([
+    loadParquetRows<ParquetGseaSequenceSet>(files.sequence_sets_parquet, baseUrl),
+    loadParquetRows<GseaMembership>(files.memberships_parquet, baseUrl),
+    loadParquetRows<ParquetGseaCurve>(files.curves_parquet, baseUrl),
+  ]);
+  return {
+    result,
+    contrast,
+    sequenceSets: sets.map((row) => ({
+      ...row,
+      genes_mapped: Number(row.genes_mapped),
+      genes_in_set: Number(row.genes_in_set),
+    })),
+    memberships,
+    curves: curves.map((row) => ({
+      ...row,
+      rank_indices: row.rank_indices.map(Number),
+      hit_indices: row.hit_indices.map(Number),
     })),
   };
 }

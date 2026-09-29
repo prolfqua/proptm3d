@@ -1,15 +1,18 @@
-import { LitElement, html } from 'lit'
-import { TabulatorFull, type ColumnDefinition } from 'tabulator-tables'
-import { buildAbundanceFigure, buildNtoCFigure, buildProteinSiteFigure, buildVolcanoFigure, focusProteinTraces, plotThresholds, proteinBackgroundPoints, renderFigure, type FigureSpec, type PlotBackground, type ProteinTraceUpdate } from './charts.js'
+import { LitElement } from 'lit'
+import { TabulatorFull } from 'tabulator-tables'
+import { renderApp, type AppViewActions, type DetailView, type FindView, type MainView } from './app-view.js'
+import { createFindTable, createSiteTable, type FindRow } from './app-tables.js'
+import { buildAbundanceFigure, buildNtoCFigure, buildProteinSiteFigure, buildVolcanoFigure, focusProteinTraces, plotThresholds, proteinBackgroundPoints, renderFigure, type FigureSpec, type ProteinTraceUpdate } from './charts.js'
 import { loadAppData, loadProteinDetail } from './data.js'
 import { buildDetailRows, displayProteinDescription, selectDetailRows, type DetailRow, type EstimateType } from './detail.js'
+import { GseaController } from './gsea-controller.js'
 import { computeLogos } from './logo.js'
 import { renderLogo } from './logo-view.js'
 import { buildPaeFigure, loadPae, paeBlockSize, paeModelFor, renderPae } from './pae.js'
-import { servedUrl } from './served-url.js'
-import { ALL_STRUCTURES, exposureLabel, isStructurallyFiltered, passesStructuralFilters, plddtLabel, regionLabel, structureDetail, structureLabel, type ExposureFilter, type RegionFilter, type StructuralFilters } from './structural.js'
-import { summarizeProteins, validCutoffs, type ProteinSummary } from './summary.js'
-import type { AppData, ProteinCatalogRow, ProteinDetail, SiteStructure, Thresholds } from './types.js'
+import { loadPlotBackgrounds, type PlotBackgrounds } from './plot-backgrounds.js'
+import { ALL_STRUCTURES, isStructurallyFiltered, passesStructuralFilters, structureLabel, type ExposureFilter, type RegionFilter, type StructuralFilters } from './structural.js'
+import { summarizeProteins, validCutoffs } from './summary.js'
+import type { AppData, ProteinCatalogRow, ProteinDetail, Thresholds } from './types.js'
 import {
   buildUpSetFigure, computeUpSet, contrastsForIntersection, renderUpSet, rowsForIntersection,
   type UpSetIntersection, type UpSetModel,
@@ -17,41 +20,8 @@ import {
 import type { SiteMarker, StructureViewer } from './structure.js'
 import type { StructureColoring } from './structure-colors.js'
 
-type MainView = 'find' | 'protein' | 'abundance'
-type FindView = 'all' | 'single' | 'sequlogos'
-type DetailView = 'structure' | 'ntoc' | 'pae'
-type FindRow = ProteinSummary & { matching_sites: string[]; matching_site_labels: string[] }
-type PlotBackgrounds = { schema_version: '1'; plots: Record<string, {
-  volcano: PlotBackground; protein_site: PlotBackground
-}> }
-
-async function loadPlotBackgrounds(baseUrl = document.baseURI): Promise<PlotBackgrounds> {
-  const response = await fetch(servedUrl('data/plot_backgrounds.json', baseUrl), {
-    mode: 'same-origin', redirect: 'error',
-  })
-  if (!response.ok) throw new Error(`Could not load plot backgrounds: HTTP ${response.status}`)
-  const backgrounds = await response.json() as PlotBackgrounds
-  if (backgrounds.schema_version !== '1') throw new Error('Unsupported plot background schema.')
-  for (const plots of Object.values(backgrounds.plots)) {
-    plots.volcano.file = servedUrl(plots.volcano.file, baseUrl).href
-    plots.protein_site.file = servedUrl(plots.protein_site.file, baseUrl).href
-  }
-  return backgrounds
-}
-
 function residueLabel(row: Pick<DetailRow, 'site' | 'modAA' | 'posInProtein'>): string {
   return row.modAA && row.posInProtein !== null ? `${row.modAA}${row.posInProtein}` : row.site
-}
-
-function structureCell(structure: SiteStructure, label: string): string {
-  const span = document.createElement('span')
-  span.textContent = label
-  span.title = structureDetail(structure)
-  return span.outerHTML
-}
-
-function numberLabel(value: number | null, digits = 3): string {
-  return value === null || !Number.isFinite(value) ? '—' : value.toFixed(digits)
 }
 
 class PtmBrowserApp extends LitElement {
@@ -87,150 +57,42 @@ class PtmBrowserApp extends LitElement {
   private upSetModelKey: string | null = null
   private renderedUpSetKey: string | null = null
   private upSetRenderId = 0
+  private gsea: GseaController | null = null
   private findScopeProteinCount = 0
   private focusPlotsPending = false
   private focusPlotsInProgress = false
   private focusPlotsIdle: Promise<void> = Promise.resolve()
   private resolveFocusPlotsIdle: (() => void) | null = null
+  private readonly viewActions: AppViewActions = {
+    toggleGuide: (open) => this.toggleGuide(open),
+    changeThresholds: () => this.changeThresholds(),
+    changeDisplayedContrast: (event) => this.changeDisplayedContrast(event),
+    changeEstimateType: (event) => this.changeEstimateType(event),
+    changeStructuralFilters: () => this.changeStructuralFilters(),
+    refreshSummary: () => this.refreshSummary(),
+    showMain: (view) => this.showMain(view),
+    showFind: (view) => this.showFind(view),
+    changeShowAllSites: () => this.changeShowAllSites(),
+    showDetailView: (view) => this.showDetailView(view),
+    changeStructureStyle: () => this.changeStructureStyle(),
+    changeGseaResult: (event) => this.gsea?.changeResult(event),
+    changeGseaFdr: () => this.gsea?.changeFdr(),
+    searchSequenceSets: () => this.gsea?.searchSequenceSets(),
+    changeSequenceSet: (event) => this.gsea?.changeSequenceSet(event),
+    changeLeadingEdge: () => this.gsea?.changeLeadingEdge(),
+    toggleGseaFilter: () => this.gsea?.toggleFilter(),
+  }
 
   protected createRenderRoot(): HTMLElement { return this }
 
-  protected render() {
-    return html`
-      <header class="masthead">
-        <div class="brand"><div class="brand-mark">3D</div><div><h1>proptm3d</h1><p>Phosphosite structure explorer</p></div></div>
-        <div class="run-meta"><span id="method-pill" class="pill method">Loading</span><span id="run-counts" class="pill"></span></div>
-        <div id="app-status" class="status" role="status">Loading prepared data…</div>
-        <button id="guide-toggle" class="guide-toggle" type="button" aria-controls="reading-guide" aria-expanded="false" @click=${() => this.toggleGuide()}>How to read this</button>
-      </header>
-      <aside id="reading-guide" class="reading-guide" aria-label="Data and color explanations" hidden @keydown=${(event: KeyboardEvent) => { if (event.key === 'Escape') this.toggleGuide(false) }}>
-        <div class="guide-heading"><h2>How to read this</h2><button type="button" aria-label="Close explanations" @click=${() => this.toggleGuide(false)}>×</button></div>
-        <dl>
-          <dt>Estimate</dt><dd>Observed uses measured site abundance. LOD imputed means a value below the limit of detection was imputed in the upstream analysis. All does not filter by estimate type; use Show all sites in Protein detail to include sites without a passing result.</dd>
-          <dt>Exposure</dt><dd>Predicted residue exposure from the AlphaFold model, using the PAE-aware StructureMap neighborhood. Exposed means at most five qualifying neighbors in a 12 Å, 70° partial sphere; buried means more than five. This is not an experimental measurement of solvent accessibility.</dd>
-          <dt>Region</dt><dd>IDR means predicted intrinsically disordered region; structured means not classified as IDR. The call uses smoothed PAE-aware neighbors in a 24 Å sphere. Sites without matched model context are neither category.</dd>
-          <dt>pLDDT</dt><dd>AlphaFold's per-residue local confidence score, 0–100; higher is more confident. It is not an exposure or disorder measurement.</dd>
-          <dt>UniProt features</dt><dd>Prepared UniProt domains, regions, motifs, repeats, transmembrane segments and signal peptides. Generic Chain intervals are not colored. Only exact coordinates on a sequence-matched protein are colored; unannotated residues are gray. More specific feature types take precedence where intervals overlap.</dd>
-          <dt>FDR and |log2FC|</dt><dd>A site passes only when FDR is strictly below the selected cutoff and absolute log2 fold change is strictly above the selected cutoff. These filters do not change the underlying abundance values.</dd>
-          <dt>UpSet intersections</dt>
-          <dd>
-            Each column is an exact set of contrasts in which the same phosphosite passes the active filters.
-            Clicking a bar or matrix dot restricts all workspaces to those sites and their proteins. Use the UpSet
-            selection toggle with the other filters to suspend or restore that restriction without losing the selection.
-          </dd>
-        </dl>
-      </aside>
-      <div class="controls global-filters" role="group" aria-label="Site filters">
-        <div class="control threshold"><label for="fdr-cutoff">FDR &lt;</label><input id="fdr-cutoff" type="number" min="0" max="1" step="0.01" value="0.05" @input=${() => this.changeThresholds()} /></div>
-        <div class="control threshold"><label for="effect-cutoff">|log2FC| &gt;</label><input id="effect-cutoff" type="number" min="0" step="0.1" value="1" @input=${() => this.changeThresholds()} /></div>
-        <div class="control global-contrast"><label for="displayed-contrast">Displayed contrast</label><select id="displayed-contrast" @change=${(event: Event) => this.changeDisplayedContrast(event)}></select></div>
-        <div class="control estimate"><label for="estimate-type">Estimate</label><select id="estimate-type" @change=${(event: Event) => this.changeEstimateType(event)}><option value="all">All</option><option value="observed">Observed</option><option value="lod_imputed">LOD imputed</option></select></div>
-        <div class="control structural"><label for="exposure-filter">Exposure</label><select id="exposure-filter" title="Bludau prediction-aware exposure; sites without matched AlphaFold context are excluded unless All" @change=${() => this.changeStructuralFilters()}><option value="all">All</option><option value="exposed">Exposed</option><option value="buried">Buried</option></select></div>
-        <div class="control structural"><label for="region-filter">Region</label><select id="region-filter" title="Bludau prediction-aware intrinsically disordered region; sites without matched AlphaFold context are excluded unless All" @change=${() => this.changeStructuralFilters()}><option value="all">All</option><option value="idr">IDR</option><option value="structured">Structured</option></select></div>
-        <div id="upset-filter-control" class="control upset-filter" hidden>
-          <span id="upset-filter-title" class="control-label">UpSet selection</span>
-          <button id="upset-filter-enabled" class="filter-toggle" type="button">
-            <span id="upset-filter-state" class="toggle-state">Off</span>
-            <span id="upset-filter-label">Apply selected sites</span>
-          </button>
-        </div>
-        <div class="control global-search"><label for="find-search">Search</label><input id="find-search" type="search" placeholder="Gene, ID or accession" @input=${() => this.refreshSummary()} /></div>
-      </div>
-      <nav class="main-tabs" aria-label="Workspaces">
-        <button type="button" data-main="find" aria-selected="true" @click=${() => this.showMain('find')}>Find proteins</button>
-        <button type="button" data-main="protein" aria-selected="false" @click=${() => this.showMain('protein')}>Protein detail</button>
-        <button type="button" data-main="abundance" aria-selected="false" @click=${() => this.showMain('abundance')}>Site abundance</button>
-      </nav>
-      <main>
-        <section id="find-workspace" class="workspace" aria-label="Find proteins">
-          <nav class="find-tabs" aria-label="Find scope">
-            <button type="button" data-find="all" aria-selected="true" @click=${() => this.showFind('all')}>All contrasts</button>
-            <button type="button" data-find="single" aria-selected="false" @click=${() => this.showFind('single')}>Single contrast</button>
-            <button type="button" data-find="sequlogos" aria-selected="false" @click=${() => this.showFind('sequlogos')}>Single contrast sequlogos</button>
-          </nav>
-          <div id="find-grid" class="find-grid all-contrasts">
-            <div id="upset-card" class="card upset-card">
-              <div class="card-title">
-                <span>Significant-site intersections</span>
-                <small id="upset-summary">Exact contrast membership</small>
-              </div>
-              <div class="card-body"><div id="upset-plot" class="upset-host"></div></div>
-              <div id="upset-note" class="metric-note">
-                Click an intersection bar or matrix dot to filter the protein table.
-              </div>
-            </div>
-            <div class="card"><div class="card-title"><span id="find-count" class="scope-count">Proteins</span><small id="find-row-hint">Click a row to inspect its sites</small></div><div class="card-body flush"><div id="find-table" class="table-host"></div></div></div>
-            <div id="focused-plots" class="focused-plots" hidden>
-              <div class="card"><div class="card-body"><div id="focus-volcano-plot" class="plot-host"></div></div></div>
-              <div class="card"><div class="card-body"><div id="focus-protein-site-plot" class="plot-host"></div><div id="focus-protein-site-note" class="metric-note"></div></div></div>
-            </div>
-          </div>
-          <div id="find-plots" class="plot-grid" hidden>
-            <div class="card"><div class="card-body"><div id="volcano-plot" class="plot-host"></div></div></div>
-            <div class="card"><div class="card-body"><div id="protein-site-plot" class="plot-host"></div><div id="protein-site-note" class="metric-note"></div></div></div>
-            <div class="logos">
-              <div class="card"><div class="card-title">Up <small id="up-count"></small></div><div id="up-logo" class="logo-host"></div></div>
-              <div class="card"><div class="card-title">Down <small id="down-count"></small></div><div id="down-logo" class="logo-host"></div></div>
-              <div class="card"><div class="card-title">Up − Down <small>amino-acid frequency difference</small></div><div id="difference-logo" class="logo-host"></div></div>
-              <div id="logo-note" class="metric-note"></div>
-            </div>
-          </div>
-        </section>
-        <section id="protein-workspace" class="workspace" hidden>
-          <div class="workspace-heading protein-heading">
-            <div class="protein-heading-copy">
-              <div class="protein-heading-line"><h2 id="protein-heading">Choose a protein</h2><span id="protein-info" class="protein-info"></span></div>
-              <div class="protein-description-row">
-                <p id="protein-description" class="protein-description" hidden></p>
-                <span id="protein-links" class="protein-links" hidden>
-                  <a id="uniprot-link" target="_blank" rel="noopener noreferrer">UniProt ↗</a>
-                  <a id="string-link" target="_blank" rel="noopener noreferrer">STRING ↗</a>
-                </span>
-              </div>
-            </div>
-            <label id="show-all-sites-label" class="show-all-sites" hidden><input id="show-all-sites" type="checkbox" @change=${() => this.changeShowAllSites()} /> Show all sites</label>
-          </div>
-          <div id="protein-content" hidden>
-            <div class="protein-grid">
-              <div class="card"><div class="card-title">Sites and results <small id="detail-count"></small></div><div class="card-body flush"><div id="detail-table" class="table-host detail-table"></div></div><div class="metric-note">Click a row to select its site.</div></div>
-              <div class="detail-views">
-                <nav class="detail-tabs" aria-label="Protein views">
-                  <button type="button" data-detail="structure" aria-selected="true" @click=${() => this.showDetailView('structure')}>3D structure</button>
-                  <button type="button" data-detail="ntoc" aria-selected="false" @click=${() => this.showDetailView('ntoc')}>N-to-C lollipop</button>
-                  <button type="button" data-detail="pae" aria-selected="false" @click=${() => this.showDetailView('pae')}>PAE</button>
-                </nav>
-                <div id="structure-panel" class="card"><div class="view-note">Red up · blue down · gray no effect</div>
-                  <div class="viewer-controls">
-                    <div class="control"><label for="structure-representation">Representation</label><select id="structure-representation" @change=${() => this.changeStructureStyle()}><option value="cartoon">Cartoon</option><option value="backbone">Backbone trace</option><option value="surface">Surface</option></select></div>
-                    <div class="control"><label for="structure-coloring">Structure color</label><select id="structure-coloring" @change=${() => this.changeStructureStyle()}><option value="plddt">pLDDT confidence</option><option value="exposure">Exposure</option><option value="region">Region / IDR</option><option value="uniprot">UniProt features</option><option value="position">N-to-C position</option><option value="neutral">Neutral</option></select></div>
-                  </div>
-                  <div id="structure-color-legend" class="structure-color-legend">pLDDT: blue high confidence · yellow/orange lower confidence</div>
-                  <div id="uniprot-color-legend" class="structure-feature-legend" hidden>
-                    <span><i style="background:#d28b3b"></i>Motif</span><span><i style="background:#59a276"></i>Signal</span><span><i style="background:#c56551"></i>Transmembrane</span><span><i style="background:#4c9699"></i>Repeat</span><span><i style="background:#8866a6"></i>Region</span><span><i style="background:#526da7"></i>Domain</span><span><i style="background:#a9b6c3"></i>No exact feature</span>
-                  </div>
-                  <div id="structure-view" class="structure-host"></div><div id="structure-status" class="viewer-status" role="status"></div>
-                </div>
-                <div id="ntoc-panel" class="card" hidden><div class="view-note">Sticks: method log2FC · dashed/open: imputed · ×: no estimate · Tracks: teal exposed / amber buried · purple IDR / blue structured · pLDDT blue high / orange low</div><div id="ntoc-plot" class="ntoc-host"></div></div>
-                <div id="pae-panel" class="card" hidden><div class="view-note">Predicted aligned error · dark: confident relative placement · light: uncertain relative placement · dotted: selected site</div><div id="pae-plot" class="pae-host"></div><div id="pae-status" class="viewer-status" role="status"></div></div>
-              </div>
-            </div>
-            <div class="controls" style="margin-top:0.9rem"><button type="button" @click=${() => this.showMain('abundance')}>Open selected site's abundance →</button><span id="selected-site-note" class="subtle"></span></div>
-          </div>
-          <p id="protein-empty" class="empty-note">Choose a protein from Find or a plotted point.</p>
-        </section>
-        <section id="abundance-workspace" class="workspace" aria-label="Site abundance" hidden>
-          <div id="abundance-content" hidden>
-            <div class="protein-grid">
-              <div class="card"><div class="card-title">Sites <small id="abundance-context"></small></div><div class="card-body flush"><div id="abundance-table" class="table-host detail-table"></div></div><div class="metric-note">Hover a row to show its abundance · click to open it in 3D.</div></div>
-              <div class="card abundance-host"><div class="view-note">Dots are samples; missing values are not set to zero.</div><div id="abundance-plot" class="plot-host"></div></div>
-            </div>
-          </div>
-          <p id="abundance-empty" class="empty-note">Choose a protein and site first.</p>
-        </section>
-      </main>`
-  }
+  protected render() { return renderApp(this.viewActions) }
 
   protected firstUpdated(): void {
+    this.gsea = new GseaController(
+      this,
+      () => this.refreshScopedViews(),
+      (message, error) => this.setStatus(message, error),
+    )
     this.el<HTMLButtonElement>('#upset-filter-enabled').addEventListener(
       'click',
       () => this.changeIntersectionFilter(),
@@ -250,6 +112,7 @@ class PtmBrowserApp extends LitElement {
     if (this.findPlotFrame !== null) window.cancelAnimationFrame(this.findPlotFrame)
     if (this.findPlotTimer !== null) window.clearTimeout(this.findPlotTimer)
     this.viewer?.dispose()
+    this.gsea?.dispose()
     this.findTable?.destroy()
     this.detailTable?.destroy()
     this.abundanceTable?.destroy()
@@ -280,6 +143,7 @@ class PtmBrowserApp extends LitElement {
       this.el('#run-counts').textContent = `${this.data.run.counts.proteins.toLocaleString()} proteins · ${this.data.run.counts.measured_sites.toLocaleString()} measured sites`
       this.syncDisplayedContrasts(null)
       this.refreshSummary()
+      await this.gsea?.configure(this.data.run, this.displayedContrast)
       this.setStatus('Ready · local prepared data')
     } catch (error) {
       this.setStatus(error instanceof Error ? error.message : String(error), true)
@@ -310,9 +174,10 @@ class PtmBrowserApp extends LitElement {
     for (const tab of this.querySelectorAll<HTMLButtonElement>('[data-main]')) {
       tab.setAttribute('aria-selected', String(tab.dataset.main === view))
     }
-    for (const name of ['find', 'protein', 'abundance'] as MainView[]) {
+    for (const name of ['find', 'protein', 'abundance', 'gsea'] as MainView[]) {
       this.el(`#${name}-workspace`).hidden = name !== view
     }
+    this.gsea?.setVisible(view === 'gsea')
     if (view === 'find' && this.findView !== 'all') {
       const resizePlots = this.renderedFindPlotKey !== null || this.findPlotInProgress
       this.requestFindPlots()
@@ -347,6 +212,7 @@ class PtmBrowserApp extends LitElement {
 
   private changeDisplayedContrast(event: Event): void {
     this.displayedContrast = (event.target as HTMLSelectElement).value
+    void this.gsea?.setContrast(this.displayedContrast)
     this.refreshSummary()
     this.requestFindPlots()
     if (this.detail) void this.refreshDetail()
@@ -411,12 +277,22 @@ class PtmBrowserApp extends LitElement {
     if (this.detail) void this.refreshDetail()
   }
 
+  private refreshScopedViews(): void {
+    if (!this.data) return
+    this.refreshSummary()
+    this.requestFindPlots(true)
+    if (this.detail) void this.refreshDetail()
+  }
+
   /** The site set shared by every Find view: estimate type and structural filters, never significance. */
   private visibleSiteIndex() {
     const index = this.data!.siteIndex
-    if (this.estimateType === 'all' && !isStructurallyFiltered(this.structural)) return index
-    return index.filter((row) => (this.estimateType === 'all' || row.site_estimate_type === this.estimateType)
-      && passesStructuralFilters(row.structure, this.structural))
+    const filtered = this.estimateType === 'all' && !isStructurallyFiltered(this.structural)
+      ? index
+      : index.filter((row) => (this.estimateType === 'all'
+        || row.site_estimate_type === this.estimateType)
+        && passesStructuralFilters(row.structure, this.structural))
+    return this.gsea?.filterSites(filtered) ?? filtered
   }
 
   private refreshSummary(): void {
@@ -425,6 +301,10 @@ class PtmBrowserApp extends LitElement {
     const visibleSites = this.visibleSiteIndex()
     let proteins = this.data.proteins
     let summarySites = visibleSites
+    if (this.gsea?.isFiltering) {
+      const proteinIds = new Set(summarySites.map((row) => row.protein_Id))
+      proteins = proteins.filter((protein) => proteinIds.has(protein.protein_Id))
+    }
     const model = this.currentUpSetModel(visibleSites)
     const selection = model.intersections.find(
       (candidate) => candidate.key === this.selectedIntersection,
@@ -434,7 +314,9 @@ class PtmBrowserApp extends LitElement {
       this.intersectionFilterEnabled = false
     }
     const activeIntersection = this.intersectionFilterEnabled ? selection : null
-    this.syncDisplayedContrasts(activeIntersection)
+    if (this.syncDisplayedContrasts(activeIntersection)) {
+      void this.gsea?.setContrast(this.displayedContrast)
+    }
     const contrast = this.findView === 'all' ? null : this.displayedContrast
     if (activeIntersection) {
       summarySites = rowsForIntersection(visibleSites, activeIntersection)
@@ -475,7 +357,7 @@ class PtmBrowserApp extends LitElement {
 
   private upSetFilterKey(): string {
     return [this.estimateType, this.thresholds.fdr, this.thresholds.absEffect,
-      this.structural.exposure, this.structural.region].join('\u0000')
+      this.structural.exposure, this.structural.region, this.gsea?.filterKey ?? ''].join('\u0000')
   }
 
   private currentUpSetModel(rows: readonly AppData['siteIndex'][number][]): UpSetModel {
@@ -555,7 +437,8 @@ class PtmBrowserApp extends LitElement {
   private findPlotKey(): string {
     return [this.findView, this.displayedContrast, this.estimateType, this.thresholds.fdr,
       this.thresholds.absEffect, this.structural.exposure, this.structural.region,
-      this.intersectionFilterEnabled ? this.selectedIntersection ?? '' : ''].join('\u0000')
+      this.intersectionFilterEnabled ? this.selectedIntersection ?? '' : '',
+      this.gsea?.filterKey ?? ''].join('\u0000')
   }
 
   private visiblePlotSites() {
@@ -611,44 +494,17 @@ class PtmBrowserApp extends LitElement {
   }
 
   private createFindTable(rows: FindRow[]): void {
-    const columns: ColumnDefinition[] = [
-      { title: 'Gene', field: 'gene_name', frozen: true, minWidth: 105 },
-      { title: 'Accession', field: 'accession', minWidth: 110 },
-      { title: 'Matching sites', field: 'matching_site_labels', minWidth: 180, visible: false,
-        formatter: (cell) => (cell.getValue() as string[]).join(', '), tooltip: true },
-      { title: 'Measured sites', field: 'measured_sites', hozAlign: 'right', sorter: 'number', minWidth: 115 },
-      { title: 'Tested sites', field: 'tested_sites', hozAlign: 'right', sorter: 'number', minWidth: 105 },
-      { title: 'Significant sites', field: 'significant_sites', hozAlign: 'right', sorter: 'number', minWidth: 125 },
-      { title: 'Up pairs', field: 'up_pairs', hozAlign: 'right', sorter: 'number', minWidth: 95,
-        tooltip: 'Significant site–contrast pairs with positive effect' },
-      { title: 'Down pairs', field: 'down_pairs', hozAlign: 'right', sorter: 'number', minWidth: 105,
-        tooltip: 'Significant site–contrast pairs with negative effect' },
-      { title: 'Largest |log2FC|', field: 'largest_effect', hozAlign: 'right', sorter: 'number', minWidth: 135,
-        formatter: (cell) => numberLabel(cell.getValue() as number | null) },
-      { title: 'Protein ID', field: 'protein_Id', minWidth: 125 },
-    ]
-    this.findTable = new TabulatorFull(this.el('#find-table'), {
-      data: rows, columns, columnDefaults: { headerWordWrap: true, headerTooltip: true },
-      index: 'protein_Id', layout: 'fitColumns',
-      initialSort: [{ column: 'significant_sites', dir: 'desc' }], placeholder: 'No proteins match the current search.',
-    })
-    this.findTable.on('rowClick', (_event, row) => {
-      const protein = row.getData() as FindRow
-      const intersection = this.activeIntersection()
-      void this.openProtein(protein, protein.matching_sites[0] ?? null, intersection?.contrasts[0])
-    })
-    this.findTable.on('rowMouseEnter', (_event, row) => {
-      if (this.findView === 'single' && this.mainView === 'find') {
-        this.setHoveredProtein((row.getData() as ProteinCatalogRow).protein_Id)
-      }
-    })
-    this.findTable.on('rowMouseLeave', (_event, row) => {
-      if (this.hoveredProteinId === (row.getData() as ProteinCatalogRow).protein_Id) {
-        this.setHoveredProtein(null)
-      }
-    })
-    this.findTable.on('dataFiltered', (_filters, visible) => {
-      this.el('#find-count').textContent = `${visible.length.toLocaleString()} / ${this.findScopeProteinCount.toLocaleString()} proteins`
+    this.findTable = createFindTable(this.el('#find-table'), rows, {
+      open: (protein) => {
+        const intersection = this.activeIntersection()
+        void this.openProtein(protein, protein.matching_sites[0] ?? null, intersection?.contrasts[0])
+      },
+      hover: (proteinId) => {
+        if (this.findView === 'single' && this.mainView === 'find') this.setHoveredProtein(proteinId)
+      },
+      count: (visible) => {
+        this.el('#find-count').textContent = `${visible.toLocaleString()} / ${this.findScopeProteinCount.toLocaleString()} proteins`
+      },
     })
   }
 
@@ -816,7 +672,10 @@ class PtmBrowserApp extends LitElement {
       }
       if (id !== this.detailLoadId) return
       this.detail = detail
-      if (contrast) this.displayedContrast = contrast
+      if (contrast) {
+        this.displayedContrast = contrast
+        void this.gsea?.setContrast(contrast)
+      }
       this.el<HTMLSelectElement>('#displayed-contrast').value = this.displayedContrast
       this.selectedSite = site
       this.el('#protein-empty').hidden = true
@@ -842,7 +701,8 @@ class PtmBrowserApp extends LitElement {
     const rows = selectDetailRows(this.detail, this.displayedContrast, this.thresholds,
       this.estimateType, this.showAllSites, this.structural)
     const intersection = this.activeIntersection()
-    return intersection ? rowsForIntersection(rows, intersection) : rows
+    const intersected = intersection ? rowsForIntersection(rows, intersection) : rows
+    return this.gsea?.filterSites(intersected) ?? intersected
   }
 
   private async refreshDetail(loadStructure = false): Promise<void> {
@@ -865,40 +725,10 @@ class PtmBrowserApp extends LitElement {
       this.syncSelectedTableRow()
       return
     }
-    this.detailTable = new TabulatorFull(this.el('#detail-table'), {
-      data: rows, columns: this.siteColumns(), columnDefaults: { headerWordWrap: true, headerTooltip: true },
-      index: 'row_id', layout: 'fitDataStretch',
-      initialSort: [{ column: 'posInProtein', dir: 'asc' }], placeholder: 'No sites match the current filters.',
+    this.detailTable = createSiteTable(this.el('#detail-table'), rows, 'row_id', {
+      click: (site) => this.selectSite(site),
+      built: () => this.syncSelectedTableRow(),
     })
-    this.detailTable.on('rowClick', (_event, row) => {
-      const value = row.getData() as DetailRow
-      this.selectSite(value.site)
-    })
-    this.detailTable.on('tableBuilt', () => this.syncSelectedTableRow())
-  }
-
-  private siteColumns(): ColumnDefinition[] {
-    return [
-      { title: 'Site', field: 'site', frozen: true, width: 165, tooltip: true },
-      { title: 'Pos.', field: 'posInProtein', sorter: 'number', hozAlign: 'right', width: 55 },
-      { title: 'AA', field: 'modAA', width: 45 },
-      { title: 'log2FC', field: 'effect', sorter: 'number', hozAlign: 'right', width: 77, formatter: (cell) => numberLabel(cell.getValue() as number | null) },
-      { title: 'FDR', field: 'fdr', sorter: 'number', hozAlign: 'right', width: 70, formatter: (cell) => numberLabel(cell.getValue() as number | null, 4) },
-      { title: 'Pass', field: 'passes_cutoff', width: 58, hozAlign: 'center', formatter: 'tickCross',
-        headerTooltip: 'Passes the shared FDR and |log2FC| thresholds' },
-      { title: 'Measured', field: 'has_measurement', width: 75, formatter: 'tickCross' },
-      { title: 'Estimate', field: 'estimate_status', width: 115 },
-      { title: 'Exposure', field: 'structure.exposure', width: 96,
-        headerTooltip: 'Bludau prediction-aware exposure from AlphaFold coordinates and PAE; hover a cell for neighbor counts',
-        formatter: (cell) => structureCell((cell.getData() as DetailRow).structure, exposureLabel((cell.getData() as DetailRow).structure)) },
-      { title: 'Region', field: 'structure.region', width: 96,
-        headerTooltip: 'Bludau prediction-aware intrinsically disordered region (IDR) or structured region',
-        formatter: (cell) => structureCell((cell.getData() as DetailRow).structure, regionLabel((cell.getData() as DetailRow).structure)) },
-      { title: 'pLDDT', field: 'structure.plddt', width: 62, hozAlign: 'right',
-        headerTooltip: 'AlphaFold per-residue model confidence at the site; informational, not a filter',
-        sorter: 'number',
-        formatter: (cell) => plddtLabel((cell.getData() as DetailRow).structure) },
-    ]
   }
 
   private setDetailCount(visible: DetailRow[], total: number): void {
@@ -1037,19 +867,16 @@ class PtmBrowserApp extends LitElement {
       void this.abundanceTable.replaceData(rows).then(() => this.syncSelectedAbundanceRow())
       return
     }
-    this.abundanceTable = new TabulatorFull(this.el('#abundance-table'), {
-      data: rows, columns: this.siteColumns(), columnDefaults: { headerWordWrap: true, headerTooltip: true },
-      index: 'site', layout: 'fitDataStretch',
-      initialSort: [{ column: 'posInProtein', dir: 'asc' }], placeholder: 'No sites match the current filters.',
+    this.abundanceTable = createSiteTable(this.el('#abundance-table'), rows, 'site', {
+      enter: (site) => void this.renderAbundance(site),
+      leave: () => void this.renderAbundance(this.selectedSite),
+      click: (site) => {
+        this.selectSite(site)
+        this.showMain('protein')
+        this.showDetailView('structure')
+      },
+      built: () => this.syncSelectedAbundanceRow(),
     })
-    this.abundanceTable.on('rowMouseEnter', (_event, row) => void this.renderAbundance((row.getData() as DetailRow).site))
-    this.abundanceTable.on('rowMouseLeave', () => void this.renderAbundance(this.selectedSite))
-    this.abundanceTable.on('rowClick', (_event, row) => {
-      this.selectSite((row.getData() as DetailRow).site)
-      this.showMain('protein')
-      this.showDetailView('structure')
-    })
-    this.abundanceTable.on('tableBuilt', () => this.syncSelectedAbundanceRow())
   }
 
   private syncSelectedAbundanceRow(): void {

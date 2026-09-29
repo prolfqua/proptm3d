@@ -119,6 +119,22 @@ def _relative_url(url: str, prefix: str) -> str:
     return path.as_posix()
 
 
+def _relative_gsea_url(url: str) -> str:
+    path = PurePosixPath(url)
+    expected_files = {"sequence_sets.parquet", "memberships.parquet", "curves.parquet"}
+    if (
+        path.is_absolute()
+        or len(path.parts) != 5
+        or path.parts[:2] != ("tables", "gsea")
+        or path.parts[3].startswith("contrast-") is False
+        or path.parts[4] not in expected_files
+        or any(part in {".", ".."} for part in path.parts)
+    ):
+        msg = f"Unexpected prepared GSEA path: {url}"
+        raise ValueError(msg)
+    return path.as_posix()
+
+
 def _file(folder: Path, relative: str) -> Path:
     path = folder / relative
     if not relative.startswith("structures/"):
@@ -271,6 +287,11 @@ def _method_files(
     for url in manifest["files"].values():
         relative = _relative_url(url, "tables")
         paths[relative] = _file(folder, relative)
+    for result in manifest.get("gsea", {}).get("results", []):
+        for files in result["contrasts"].values():
+            for url in files.values():
+                relative = _relative_gsea_url(url)
+                paths[relative] = _file(folder, relative)
     table = paths["tables/structures.parquet"]
     structures, pae, contexts = _referenced_models(table)
     if contexts and not (folder / "residue_context").is_dir():

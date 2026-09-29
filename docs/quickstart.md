@@ -37,13 +37,14 @@ To preview all prepared methods, run `proptm3d serve /path/to/viewer`, then open
 
 For the current `o43037_FP24_AntjePhospho` dataset, run [the fish example](../examples/o43037_prepare_bundle.fish) from an active `.venv` to prepare and bundle DPA, DPU, and CF-DPU in one ZIP. Its paths are literal, and the ZIP refuses to overwrite an existing file.
 
-For completed enrichment analysis, provide a PTM delivery ZIP containing `PTM_results.h5mu` and the recognized GSEA artifacts:
+For completed enrichment analysis, provide either a PTM delivery ZIP or its unpacked folder containing `PTM_results.h5mu` and the recognized GSEA artifacts:
 
 ```sh
 uv run proptm3d prepare gsea DPA /path/to/viewer --input /path/to/PTM_delivery.zip
+# or: --input /path/to/PTM_delivery/
 ```
 
-`prepare stats` can also accept a statistics delivery ZIP containing `PTM_statistics.h5mu` or a completed delivery ZIP containing `PTM_results.h5mu`. Run `proptm3d bundle /path/to/viewer` to bundle every prepared method behind the shared entry page. These commands need network access only while filling the preparation cache; the browser itself reads the served files.
+`prepare stats` can also accept an unpacked delivery folder, a statistics delivery ZIP containing `PTM_statistics.h5mu`, or a completed delivery ZIP containing `PTM_results.h5mu`. When both h5mu stages are present, it uses `PTM_results.h5mu`. Run `proptm3d bundle /path/to/viewer` to bundle every prepared method behind the shared entry page. These commands need network access only while filling the preparation cache; the browser itself reads the served files.
 
 The ZIP contains `serve.py`, `serve.sh`, and `serve.bat` by default, so a recipient can run the extracted site locally without installing proptm3d. Python 3 is the only runtime requirement; see the [bundle guide](bundles.md) for launch commands. Pass `--no-include-server` to omit these files.
 

@@ -9,7 +9,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import quote
-from zipfile import ZipFile, ZipInfo
+from zipfile import ZipFile
 
 import h5py
 import polars as pl
@@ -17,10 +17,13 @@ import polars as pl
 from proptm3d import browser_assets, prepared_root
 from proptm3d.alphafold_cache import ARCHIVE_VERSION, cache_models, cached_pae_file
 from proptm3d.gsea_data import (
-    GseaTables,
-    archive_gsea_members,
+    RESULT_LABELS,
+    GseaArtifact,
+    GseaInput,
+    archive_gsea_artifacts,
     artifact_key,
-    read_gsea_tables,
+    folder_gsea_artifacts,
+    iter_gsea_tables,
 )
 from proptm3d.plot_backgrounds import write_plot_backgrounds
 from proptm3d.prepared_data import (
@@ -40,6 +43,17 @@ from proptm3d.uniprot_cache import AnnotationTables, load_annotations
 
 @contextmanager
 def _statistics_source(input_file: Path, output_dir: Path) -> Iterator[tuple[Path, str]]:
+    if input_file.is_dir():
+        for name, stage in (
+            ("PTM_results.h5mu", "PTM_results"),
+            ("PTM_statistics.h5mu", "PTM_statistics"),
+        ):
+            candidate = input_file / name
+            if candidate.is_file():
+                yield candidate, stage
+                return
+        msg = f"Expected PTM_results.h5mu or PTM_statistics.h5mu in {input_file}"
+        raise ValueError(msg)
     if input_file.suffix.lower() != ".zip":
         with h5py.File(input_file) as handle:
             stage = handle["uns/prophosqua/stage"].asstr()[()]
@@ -51,42 +65,42 @@ def _statistics_source(input_file: Path, output_dir: Path) -> Iterator[tuple[Pat
 
     stages = {"PTM_statistics.h5mu": "PTM_statistics", "PTM_results.h5mu": "PTM_results"}
     with ZipFile(input_file) as archive:
-        members = [
-            item
+        members_by_name = {
+            Path(item.filename).name: item
             for item in archive.infolist()
             if not item.is_dir() and Path(item.filename).name in stages
-        ]
-        if len(members) != 1:
-            msg = (
-                f"Expected exactly one PTM_statistics.h5mu or PTM_results.h5mu in "
-                f"{input_file}; found {len(members)}"
-            )
+        }
+        member = members_by_name.get("PTM_results.h5mu") or members_by_name.get(
+            "PTM_statistics.h5mu"
+        )
+        if member is None:
+            msg = f"Expected PTM_statistics.h5mu or PTM_results.h5mu in {input_file}; found 0"
             raise ValueError(msg)
         with tempfile.TemporaryDirectory(prefix=".statistics-", dir=output_dir) as temporary:
-            name = Path(members[0].filename).name
+            name = Path(member.filename).name
             statistics_file = Path(temporary) / name
-            with archive.open(members[0]) as source, statistics_file.open("wb") as target:
+            with archive.open(member) as source, statistics_file.open("wb") as target:
                 shutil.copyfileobj(source, target)
             yield statistics_file, stages[name]
 
 
-def _gsea_member_checksums(
+def _gsea_checksums(
     results_file: Path,
-    members_by_method: dict[str, list[ZipInfo]],
+    artifacts_by_method: dict[str, list[GseaArtifact]],
 ) -> dict[str, str]:
     expected = {}
     with h5py.File(results_file) as handle:
         namespace = handle["uns/prophosqua"]
         recorded_files = namespace["enrichment_files"]
         recorded_checksums = namespace["enrichment_sha256"]
-        for method, members in members_by_method.items():
-            for member in members:
-                key = artifact_key(method, member)
+        for method, artifacts in artifacts_by_method.items():
+            for artifact in artifacts:
+                key = artifact_key(method, artifact)
                 relative = recorded_files[key].asstr()[()]
-                if member.filename != relative and not member.filename.endswith(f"/{relative}"):
-                    msg = f"GSEA artifact path does not match PTM_results.h5mu: {member.filename}"
+                if artifact.filename != relative and not artifact.filename.endswith(f"/{relative}"):
+                    msg = f"GSEA artifact path does not match PTM_results.h5mu: {artifact.filename}"
                     raise ValueError(msg)
-                expected[member.filename] = recorded_checksums[key].asstr()[()]
+                expected[artifact.filename] = recorded_checksums[key].asstr()[()]
     return expected
 
 
@@ -95,9 +109,30 @@ def _gsea_source(
     input_file: Path,
     output_dir: Path,
     methods: tuple[str, ...],
-) -> Iterator[tuple[Path, dict[str, GseaTables]]]:
+) -> Iterator[tuple[Path, dict[str, GseaInput]]]:
+    if input_file.is_dir():
+        results_file = input_file / "PTM_results.h5mu"
+        if not results_file.is_file():
+            msg = f"Expected PTM_results.h5mu in {input_file}"
+            raise ValueError(msg)
+        artifacts_by_method = {
+            method: folder_gsea_artifacts(input_file, method) for method in methods
+        }
+        missing = [method for method, artifacts in artifacts_by_method.items() if not artifacts]
+        if missing:
+            msg = f"Delivery folder has no GSEA results for: {', '.join(missing)}"
+            raise ValueError(msg)
+        expected_checksums = _gsea_checksums(results_file, artifacts_by_method)
+        yield (
+            results_file,
+            {
+                method: GseaInput(artifacts_by_method[method], expected_checksums)
+                for method in methods
+            },
+        )
+        return
     if input_file.suffix.lower() != ".zip":
-        msg = "GSEA preparation requires a completed PTM delivery ZIP"
+        msg = "GSEA preparation requires a completed PTM delivery ZIP or unpacked folder"
         raise ValueError(msg)
     with ZipFile(input_file) as archive:
         result_members = [
@@ -111,8 +146,10 @@ def _gsea_source(
                 f"found {len(result_members)}"
             )
             raise ValueError(msg)
-        members_by_method = {method: archive_gsea_members(archive, method) for method in methods}
-        missing = [method for method, members in members_by_method.items() if not members]
+        artifacts_by_method = {
+            method: archive_gsea_artifacts(archive, method) for method in methods
+        }
+        missing = [method for method, artifacts in artifacts_by_method.items() if not artifacts]
         if missing:
             msg = f"Delivery ZIP has no GSEA results for: {', '.join(missing)}"
             raise ValueError(msg)
@@ -120,14 +157,9 @@ def _gsea_source(
             results_file = Path(temporary) / "PTM_results.h5mu"
             with archive.open(result_members[0]) as source, results_file.open("wb") as target:
                 shutil.copyfileobj(source, target)
-            expected_checksums = _gsea_member_checksums(results_file, members_by_method)
+            expected_checksums = _gsea_checksums(results_file, artifacts_by_method)
             gsea = {
-                method: read_gsea_tables(
-                    archive,
-                    members_by_method[method],
-                    method,
-                    expected_checksums,
-                )
+                method: GseaInput(artifacts_by_method[method], expected_checksums)
                 for method in methods
             }
             yield results_file, gsea
@@ -225,6 +257,118 @@ def _link_residue_contexts(
         (directory / path.name).symlink_to(path.resolve())
 
 
+def _gsea_memberships(terms: pl.DataFrame, sites: pl.DataFrame) -> pl.DataFrame:
+    keys = ["analysis", "contrast", "source", "result_stage", "term_id"]
+    members = (
+        terms.select(*keys, "gene_ids")
+        .explode("gene_ids", empty_as_null=True)
+        .rename({"gene_ids": "sequence_window"})
+        .filter(pl.col("sequence_window").is_not_null())
+        .with_columns(pl.col("sequence_window").str.to_uppercase())
+    )
+    leading = (
+        terms.select(*keys, "leading_edge_ids")
+        .explode("leading_edge_ids", empty_as_null=True)
+        .rename({"leading_edge_ids": "sequence_window"})
+        .filter(pl.col("sequence_window").is_not_null())
+        .with_columns(
+            pl.col("sequence_window").str.to_uppercase(),
+            pl.lit(True).alias("is_leading_edge"),
+        )
+    )
+    site_windows = (
+        sites.select(
+            "protein_Id",
+            "site",
+            pl.col("SequenceWindow").str.to_uppercase().alias("sequence_window"),
+        )
+        .filter(pl.col("sequence_window").is_not_null())
+        .unique()
+    )
+    return (
+        members.join(leading, on=[*keys, "sequence_window"], how="left")
+        .with_columns(pl.col("is_leading_edge").fill_null(False))
+        .join(site_windows, on="sequence_window", how="inner")
+        .rename({"term_id": "sequence_set"})
+        .select(
+            "contrast",
+            "result_stage",
+            "source",
+            "sequence_set",
+            "protein_Id",
+            "site",
+            "sequence_window",
+            "is_leading_edge",
+        )
+        .unique()
+        .sort("source", "sequence_set", "protein_Id", "site")
+    )
+
+
+def _write_gsea_tables(
+    staging: Path,
+    gsea: GseaInput,
+    method: str,
+    sites: pl.DataFrame,
+    contrast_order: list[str],
+) -> tuple[dict, dict]:
+    root = staging / "tables" / "gsea"
+    root.mkdir()
+    contrast_index = {contrast: index for index, contrast in enumerate(contrast_order)}
+    files_by_stage: dict[str, dict] = {}
+    sources_by_stage: dict[str, set[str]] = {}
+    all_sources: set[str] = set()
+    term_count = 0
+    membership_count = 0
+    for chunk in iter_gsea_tables(gsea, method):
+        if chunk.terms.is_empty():
+            continue
+        [stage] = chunk.terms["result_stage"].unique().to_list()
+        [contrast] = chunk.terms["contrast"].unique().to_list()
+        if contrast not in contrast_index:
+            msg = f"GSEA contrast has no matching statistics: {contrast}"
+            raise ValueError(msg)
+        memberships = _gsea_memberships(chunk.terms, sites)
+        directory = root / stage / f"contrast-{contrast_index[contrast]}"
+        directory.mkdir(parents=True)
+        sequence_sets = chunk.terms.drop("gene_ids", "leading_edge_ids").rename(
+            {"term_id": "sequence_set", "enrichment_score": "nes"}
+        )
+        memberships = memberships.drop("result_stage", "contrast")
+        curves = chunk.curves.drop("analysis", "contrast", "result_stage").rename(
+            {"term_id": "sequence_set"}
+        )
+        sequence_sets.write_parquet(directory / "sequence_sets.parquet")
+        memberships.write_parquet(directory / "memberships.parquet")
+        curves.write_parquet(directory / "curves.parquet")
+        relative = directory.relative_to(staging).as_posix()
+        files_by_stage.setdefault(stage, {})[contrast] = {
+            "sequence_sets_parquet": f"{relative}/sequence_sets.parquet",
+            "memberships_parquet": f"{relative}/memberships.parquet",
+            "curves_parquet": f"{relative}/curves.parquet",
+        }
+        sources = set(chunk.terms["source"].unique().to_list())
+        sources_by_stage.setdefault(stage, set()).update(sources)
+        all_sources.update(sources)
+        term_count += chunk.terms.height
+        membership_count += memberships.height
+    results = [
+        {
+            "id": stage,
+            "label": label,
+            "sources": sorted(sources_by_stage[stage]),
+            "contrasts": files_by_stage[stage],
+        }
+        for stage, label in RESULT_LABELS.items()
+        if stage in files_by_stage
+    ]
+    return {"results": results, "documents": gsea.documents}, {
+        "terms": term_count,
+        "memberships": membership_count,
+        "sources": all_sources,
+    }
+
+
 def _write_method(
     staging: Path,
     tables: PreparedTables,
@@ -233,7 +377,7 @@ def _write_method(
     cache_root: Path,
     context_files: dict[str, Path],
     preparation: str,
-    gsea: GseaTables | None = None,
+    gsea: GseaInput | None = None,
 ) -> dict:
     staging.mkdir()
     (staging / "tables").mkdir()
@@ -286,8 +430,12 @@ def _write_method(
     )
     structural_context = site_structural_context(tables.sites, context_files)
     structural_context.write_parquet(staging / "tables" / "site_structural_context.parquet")
+    gsea_manifest = None
+    gsea_summary = None
     if gsea is not None:
-        gsea.terms.write_parquet(staging / "tables" / "gsea_terms.parquet")
+        gsea_manifest, gsea_summary = _write_gsea_tables(
+            staging, gsea, tables.method, tables.sites, tables.contrasts
+        )
 
     structures = cache_root / "alphafold" / "structures"
     (staging / "structures").symlink_to(structures.resolve(), target_is_directory=True)
@@ -340,9 +488,9 @@ def _write_method(
         "site_structural_context_parquet": "tables/site_structural_context.parquet",
     }
     if gsea is not None:
-        files["gsea_terms_parquet"] = "tables/gsea_terms.parquet"
-        counts["gsea_terms"] = gsea.terms.height
-        counts["gsea_sources"] = gsea.terms["source"].n_unique()
+        counts["gsea_terms"] = gsea_summary["terms"]
+        counts["gsea_sources"] = len(gsea_summary["sources"])
+        counts["gsea_memberships"] = gsea_summary["memberships"]
     manifest = {
         "kind": MANIFEST_KIND,
         "schema_version": SCHEMA_VERSION,
@@ -361,10 +509,7 @@ def _write_method(
         "files": files,
     }
     if gsea is not None:
-        manifest["gsea"] = {
-            "sources": sorted(gsea.terms["source"].unique().to_list()),
-            "documents": gsea.documents,
-        }
+        manifest["gsea"] = gsea_manifest
     (staging / "data" / "run.json").write_text(json.dumps(manifest, indent=2))
     write_plot_backgrounds(staging, tables.stats, tables.contrasts)
     browser_assets.install_browser_assets(staging)
@@ -393,7 +538,7 @@ def _prepare_from_mudata(
     mudata_file: Path,
     expected_stage: str,
     preparation: str,
-    gsea: dict[str, GseaTables],
+    gsea: dict[str, GseaInput],
     output_dir: Path,
     methods: tuple[str, ...] = tuple(METHOD_SPECS),
     cache_root: Path | None = None,
@@ -442,7 +587,7 @@ def prepare_stats(
     cache_root: Path | None = None,
 ) -> list[dict]:
     """Prepare quantification and DEA Parquet tables from the statistics stage."""
-    if not input_file.is_file():
+    if not input_file.exists():
         raise FileNotFoundError(input_file)
     output_dir.mkdir(parents=True, exist_ok=True)
     with _statistics_source(input_file, output_dir) as (statistics_file, stage):
@@ -463,8 +608,8 @@ def prepare_gsea(
     methods: tuple[str, ...] = tuple(METHOD_SPECS),
     cache_root: Path | None = None,
 ) -> list[dict]:
-    """Prepare stats and required GSEA Parquet tables from a completed delivery ZIP."""
-    if not input_file.is_file():
+    """Prepare stats and GSEA tables from a completed delivery ZIP or folder."""
+    if not input_file.exists():
         raise FileNotFoundError(input_file)
     output_dir.mkdir(parents=True, exist_ok=True)
     with _gsea_source(input_file, output_dir, methods) as (results_file, gsea):

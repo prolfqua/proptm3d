@@ -9,6 +9,7 @@ export interface RunManifest {
   kind: "proptm3d-prepared-method";
   schema_version: "2";
   method: Method;
+  preparation?: "stats" | "gsea";
   contrasts: string[];
   samples: Sample[];
   sample_name_field: string;
@@ -40,6 +41,72 @@ export interface RunManifest {
     structures_parquet: string;
     site_structural_context_parquet: string;
   };
+  gsea?: GseaManifest;
+}
+
+export interface GseaContrastFiles {
+  sequence_sets_parquet: string;
+  memberships_parquet: string;
+  curves_parquet: string;
+}
+
+export interface GseaResultManifest {
+  id: string;
+  label: string;
+  sources: string[];
+  contrasts: Record<string, GseaContrastFiles>;
+}
+
+export interface GseaManifest {
+  results: GseaResultManifest[];
+  documents: Array<{
+    file: string;
+    stage: string;
+    format: string;
+    sha256: string;
+    terms: number;
+  }>;
+}
+
+export interface GseaSequenceSet {
+  analysis: string;
+  contrast: string;
+  source: string;
+  result_stage: string;
+  sequence_set: string;
+  description: string;
+  nes: number;
+  direction: string;
+  fdr: number;
+  method: string;
+  genes_mapped: number;
+  genes_in_set: number;
+}
+
+export interface GseaMembership {
+  source: string;
+  sequence_set: string;
+  protein_Id: string;
+  site: string;
+  sequence_window: string;
+  is_leading_edge: boolean;
+}
+
+export interface GseaCurve {
+  source: string;
+  sequence_set: string;
+  rank_indices: number[];
+  running_scores: number[];
+  hit_indices: number[];
+  hit_scores: number[];
+}
+
+export interface GseaPayload {
+  result: GseaResultManifest;
+  contrast: string;
+  sequenceSets: GseaSequenceSet[];
+  memberships: GseaMembership[];
+  curves: GseaCurve[];
 }
 
 export interface ProteinInfo {

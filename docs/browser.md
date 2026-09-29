@@ -10,6 +10,12 @@ Exposure and Region are independent structural annotations; they do not change w
 
 The protein tables, Protein detail, 3D markers, N-to-C markers, and Site abundance accept any FDR in `(0, 1]` and any absolute log2 fold-change cutoff of at least zero. The dense volcano and protein-versus-site plots retain a display cap: only sites with FDR below 0.25 and absolute log2 fold change above 1 can receive interactive red or blue overlays; the complete static black background remains visible.
 
+GSEA preparations extend the same filter bar with an enrichment-result selector, GSEA FDR, sequence-set selector, **Leading edge only**, and an explicit **GSEA selection** toggle. Selecting a sequence set updates only the GSEA views until the toggle is on. Once enabled, the selected full or leading-edge site set becomes one additional predicate shared by Find proteins, UpSet, the existing sequence logos, Protein detail, structure markers, and Site abundance. Changing the displayed contrast loads that contrast's selected enrichment result. Statistics-only preparations hide the GSEA controls and workspace.
+
+## GSEA
+
+The GSEA workspace shows one enrichment result at a time: PTM-SEA, Kinase GSEA, or MEA. Its volcano and sortable table summarize sequence sets by normalized enrichment score and GSEA FDR. Selecting a row or sequence-set option updates the running-enrichment curve, including the original ranked hit positions. The GSEA FDR controls which sequence sets are available for selection; it is independent of the site-level FDR and fold-change controls.
+
 ## Find proteins
 
 The Find proteins workspace has three views:

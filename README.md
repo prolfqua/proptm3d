@@ -69,7 +69,7 @@ default folder.
 
 `prepare stats` reads exactly one statistics-bearing `PTM_statistics.h5mu` or `PTM_results.h5mu` member and ignores `PTM_inputs.h5mu`. It discovers every contrast from the method-specific `varm/<method>__<contrast>` data frames, exports only observed site-level estimates to `tables/site_stats.parquet`, and exports quantification to `tables/measurements.parquet`, plus the supporting site, protein, annotation, structure, and structural-context tables. DPA and DPU come from `mod/enriched`; CF-DPU is the reported protein-imputed CorrectFirst analysis in `mod/enriched_CF`, including its `layers/correct_first_protein_imputed` abundance matrix.
 
-`prepare gsea` requires exactly one `PTM_results.h5mu` and at least one recognized GSEA result artifact for every selected method. It produces all the same statistics tables plus `tables/gsea_terms.parquet`, including term scores, FDRs, full member sequence windows, and leading-edge sequence windows. A statistics-only ZIP fails instead of producing a misleading GSEA package. Input members are extracted only temporarily; the ZIP remains unchanged.
+`prepare gsea` accepts either a completed delivery ZIP or its unpacked folder. It requires `PTM_results.h5mu` and at least one recognized GSEA result artifact for every selected method. It produces all the same statistics tables plus contrast-scoped sequence-set, exact site-membership, leading-edge, and compact running-curve Parquet tables under `tables/gsea/`. A statistics-only delivery fails instead of producing a misleading GSEA package. ZIP members are extracted only temporarily; the ZIP remains unchanged. `prepare stats` likewise accepts a direct h5mu, delivery ZIP, or unpacked folder and prefers `PTM_results.h5mu` when both stages are present.
 
 In the current PTM pipeline layout, the statistics delivery contains `PTM_statistics.h5mu`. The completed delivery contains `PTM_results.h5mu` beside `PTM_DPA/`, `PTM_DPU/`, and `PTM_CF_DPU/`; their raw gzipped protsea `result_ptm_sea.json.gz`, `result_kinase_gsea.json.gz`, and `result_mea.json.gz` documents are the checksum-validated inputs to `prepare gsea`.
 
@@ -109,7 +109,7 @@ DPA/
   tables/protein_features.parquet
   tables/structures.parquet
   tables/site_structural_context.parquet
-  tables/gsea_terms.parquet               # prepare gsea only
+  tables/gsea/<result>/contrast-*/        # sequence sets, memberships, and curves; prepare gsea only
   structures/                    # link to shared cached .cif.gz models
   pae/                           # links to the experiment models' cached PAE .json.gz
   residue_context/               # links to referenced models' per-residue Parquet context
@@ -126,6 +126,8 @@ The site table retains every detected site, including those without an estimable
 `matched` means only that the site was mapped to an AlphaFold residue with the same amino acid; it does not mean exposed, confident, or significant. `structures.parquet` carries `pae_url` and `context_url` for each model with cached annotations. The browser reads residue-context Parquet only when that protein is opened, allowing full-structure coloring by exposure and predicted IDR. UniProt feature coloring uses the prepared feature table and exact, sequence-matched coordinates. The right-side “How to read this” panel explains these labels in the app.
 
 In the browser, FDR and |log2FC| remain the only significance criteria. The independent **Exposure** (All, Exposed, Buried) and **Region** (All, IDR, Structured) filters default to All, which shows the same sites as before; unmatched sites stay visible and labelled. Choosing a category excludes sites without a matched classification. Both filters apply to the Find proteins tables and plots, the Protein detail table, 3D and N-to-C markers, and Site abundance choices, including under Show all sites. pLDDT is shown for interpretation and is not a filter.
+
+GSEA preparations add result, GSEA FDR, and sequence-set controls plus **Leading edge only** and an explicit **GSEA selection** toggle. The GSEA workspace shows the active result's sequence-set volcano and sortable table, then the selected set's running-enrichment curve. Selection alone only changes the GSEA views; turning on the GSEA selection toggle adds its sites to the same scope used by Find proteins, UpSet, the existing sequence logos, Protein detail, 3D and N-to-C markers, and Site abundance. Statistics-only preparations hide these controls and do not load GSEA data.
 
 Protein detail's **PAE** tab loads the displayed model's PAE only when shown and draws it as a heatmap with guides at the selected site. Low PAE means confident relative placement of two residues; high PAE means uncertain relative placement, as between domains or across linkers. PAE is not per-residue confidence, exposure, statistical evidence, or functional importance; see the [EMBL-EBI PAE guide](https://www.ebi.ac.uk/training/online/courses/alphafold/inputs-and-outputs/evaluating-alphafolds-predicted-structures-using-confidence-scores/pae-a-measure-of-global-confidence-in-alphafold-predictions/).
 
