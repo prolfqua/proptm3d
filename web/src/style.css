@@ -239,6 +239,7 @@ ptm-browser-app { display: block; min-height: 100vh; }
 .find-grid:not(.all-contrasts) #find-table { height: clamp(350px, 60vh, 650px); }
 .focused-plots { display: grid; gap: 0.9rem; min-width: 0; }
 .plot-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.9rem; }
+.gsea-find-panel { margin-bottom: 0.9rem; }
 .gsea-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.9rem; }
 .gsea-curve-card { grid-column: 1 / -1; }
 .gsea-table { height: 390px; min-height: 390px; }

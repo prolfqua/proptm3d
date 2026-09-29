@@ -174,10 +174,10 @@ class PtmBrowserApp extends LitElement {
     for (const tab of this.querySelectorAll<HTMLButtonElement>('[data-main]')) {
       tab.setAttribute('aria-selected', String(tab.dataset.main === view))
     }
-    for (const name of ['find', 'protein', 'abundance', 'gsea'] as MainView[]) {
+    for (const name of ['find', 'protein', 'abundance'] as MainView[]) {
       this.el(`#${name}-workspace`).hidden = name !== view
     }
-    this.gsea?.setVisible(view === 'gsea')
+    this.gsea?.setVisible(view === 'find' && this.findView === 'gsea')
     if (view === 'find' && this.findView !== 'all') {
       const resizePlots = this.renderedFindPlotKey !== null || this.findPlotInProgress
       this.requestFindPlots()
@@ -194,14 +194,18 @@ class PtmBrowserApp extends LitElement {
     for (const tab of this.querySelectorAll<HTMLButtonElement>('[data-find]')) {
       tab.setAttribute('aria-selected', String(tab.dataset.find === view))
     }
+    this.gsea?.setVisible(this.mainView === 'find' && view === 'gsea')
+    this.el('#gsea-workspace').hidden = view !== 'gsea'
     this.el('#find-grid').hidden = view === 'sequlogos'
     this.el('#upset-card').hidden = view !== 'all'
     this.el('#focused-plots').hidden = view !== 'single'
     this.el('#find-plots').hidden = view !== 'sequlogos'
     this.el('#find-row-hint').textContent = view === 'single'
       ? 'Hover a row to isolate its plotted sites · click for details'
+      : view === 'gsea'
+        ? 'Apply a sequence set, then click a protein to inspect its sites'
       : 'Click a row to inspect its sites'
-    this.el('#find-grid').classList.toggle('all-contrasts', view === 'all')
+    this.el('#find-grid').classList.toggle('all-contrasts', view === 'all' || view === 'gsea')
     if (view !== 'sequlogos') this.refreshSummary()
     if (view !== 'all') {
       const resizePlots = this.renderedFindPlotKey !== null || this.findPlotInProgress
@@ -452,7 +456,7 @@ class PtmBrowserApp extends LitElement {
     this.findPlotFrame = null
     if (this.findPlotTimer !== null) window.clearTimeout(this.findPlotTimer)
     this.findPlotTimer = null
-    if (!this.data || this.findView === 'all' || this.mainView !== 'find') return
+    if (!this.data || !['single', 'sequlogos'].includes(this.findView) || this.mainView !== 'find') return
     if (this.renderedFindPlotKey === this.findPlotKey()) return
     if (debounce) {
       this.findPlotTimer = window.setTimeout(() => {
@@ -479,7 +483,8 @@ class PtmBrowserApp extends LitElement {
     if (this.renderedFindPlotKey === null) return
     try {
       const Plotly = (await import('plotly.js-gl2d-dist-min')).default
-      if (this.findView === 'all' || this.mainView !== 'find' || this.findPlotInProgress) return
+      if (!['single', 'sequlogos'].includes(this.findView)
+        || this.mainView !== 'find' || this.findPlotInProgress) return
       if (this.findView === 'single') {
         Plotly.Plots.resize(this.el('#focus-volcano-plot'))
         Plotly.Plots.resize(this.el('#focus-protein-site-plot'))
@@ -570,7 +575,7 @@ class PtmBrowserApp extends LitElement {
     try {
       while (this.mainView === 'find') {
         const view: FindView = this.findView
-        if (view === 'all') break
+        if (view === 'all' || view === 'gsea') break
         const key = this.findPlotKey()
         if (this.renderedFindPlotKey === key || this.findPlotTimer !== null) break
         const siteIndex = this.visiblePlotSites()

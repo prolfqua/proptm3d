@@ -1,9 +1,9 @@
 import { html, type TemplateResult } from 'lit'
 
-import { renderGseaControls, renderGseaTabButton, renderGseaWorkspace, type GseaViewActions } from './gsea-view.js'
+import { renderGseaControls, renderGseaFindPanel, type GseaViewActions } from './gsea-view.js'
 
-export type MainView = 'find' | 'protein' | 'abundance' | 'gsea'
-export type FindView = 'all' | 'single' | 'sequlogos'
+export type MainView = 'find' | 'protein' | 'abundance'
+export type FindView = 'all' | 'single' | 'sequlogos' | 'gsea'
 export type DetailView = 'structure' | 'ntoc' | 'pae'
 
 export interface AppViewActions extends GseaViewActions {
@@ -66,7 +66,6 @@ export function renderApp(actions: AppViewActions): TemplateResult {
       <button type="button" data-main="find" aria-selected="true" @click=${() => actions.showMain('find')}>Find proteins</button>
       <button type="button" data-main="protein" aria-selected="false" @click=${() => actions.showMain('protein')}>Protein detail</button>
       <button type="button" data-main="abundance" aria-selected="false" @click=${() => actions.showMain('abundance')}>Site abundance</button>
-      ${renderGseaTabButton(() => actions.showMain('gsea'))}
     </nav>
     <main>
       <section id="find-workspace" class="workspace" aria-label="Find proteins">
@@ -74,7 +73,9 @@ export function renderApp(actions: AppViewActions): TemplateResult {
           <button type="button" data-find="all" aria-selected="true" @click=${() => actions.showFind('all')}>All contrasts</button>
           <button type="button" data-find="single" aria-selected="false" @click=${() => actions.showFind('single')}>Single contrast</button>
           <button type="button" data-find="sequlogos" aria-selected="false" @click=${() => actions.showFind('sequlogos')}>Single contrast sequlogos</button>
+          <button id="gsea-find-tab" type="button" data-find="gsea" aria-selected="false" hidden @click=${() => actions.showFind('gsea')}>GSEA</button>
         </nav>
+        ${renderGseaFindPanel()}
         <div id="find-grid" class="find-grid all-contrasts">
           <div id="upset-card" class="card upset-card">
             <div class="card-title"><span>Significant-site intersections</span><small id="upset-summary">Exact contrast membership</small></div>
@@ -98,7 +99,6 @@ export function renderApp(actions: AppViewActions): TemplateResult {
           </div>
         </div>
       </section>
-      ${renderGseaWorkspace()}
       <section id="protein-workspace" class="workspace" hidden>
         <div class="workspace-heading protein-heading">
           <div class="protein-heading-copy">

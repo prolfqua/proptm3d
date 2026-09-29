@@ -52,7 +52,7 @@ export class GseaController {
     this.resultId = run.gsea.results[0].id
     select.value = this.resultId
     this.el('#gsea-controls').hidden = false
-    this.el('#gsea-main-tab').hidden = false
+    this.el('#gsea-find-tab').hidden = false
     await this.load()
   }
 

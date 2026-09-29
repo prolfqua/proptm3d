@@ -27,13 +27,9 @@ export function renderGseaControls(actions: GseaViewActions): TemplateResult {
     </div>`
 }
 
-export function renderGseaTabButton(show: () => void): TemplateResult {
-  return html`<button id="gsea-main-tab" type="button" data-main="gsea" aria-selected="false" hidden @click=${show}>GSEA</button>`
-}
-
-export function renderGseaWorkspace(): TemplateResult {
+export function renderGseaFindPanel(): TemplateResult {
   return html`
-    <section id="gsea-workspace" class="workspace" aria-label="GSEA results" hidden>
+    <div id="gsea-workspace" class="gsea-find-panel" aria-label="GSEA results" hidden>
       <div class="gsea-grid">
         <div class="card">
           <div class="card-title"><span>Sequence-set enrichment</span><small id="gsea-result-count"></small></div>
@@ -48,5 +44,5 @@ export function renderGseaWorkspace(): TemplateResult {
           <div class="card-body"><div id="gsea-curve" class="plot-host"></div><p id="gsea-curve-empty" class="empty-note" hidden></p></div>
         </div>
       </div>
-    </section>`
+    </div>`
 }
