@@ -257,14 +257,37 @@ def _link_residue_contexts(
         (directory / path.name).symlink_to(path.resolve())
 
 
-def _gsea_memberships(terms: pl.DataFrame, sites: pl.DataFrame) -> pl.DataFrame:
+def _gsea_memberships(
+    terms: pl.DataFrame, curves: pl.DataFrame, sites: pl.DataFrame
+) -> pl.DataFrame:
     keys = ["analysis", "contrast", "source", "result_stage", "term_id"]
+    hit_counts = terms.select(*keys, pl.col("gene_ids").list.len().alias("member_count")).join(
+        curves.select(*keys, pl.col("hit_indices").list.len().alias("hit_count")),
+        on=keys,
+        how="left",
+        validate="1:1",
+    )
+    if hit_counts.filter(
+        pl.col("hit_count").is_null() | (pl.col("member_count") != pl.col("hit_count"))
+    ).height:
+        msg = "GSEA sequence-set members do not align with running-curve hit indices"
+        raise ValueError(msg)
     members = (
         terms.select(*keys, "gene_ids")
-        .explode("gene_ids", empty_as_null=True)
+        .with_columns(pl.int_ranges(0, pl.col("gene_ids").list.len()).alias("hit_order"))
+        .explode("gene_ids", "hit_order", empty_as_null=True)
         .rename({"gene_ids": "sequence_window"})
         .filter(pl.col("sequence_window").is_not_null())
         .with_columns(pl.col("sequence_window").str.to_uppercase())
+    )
+    hits = (
+        curves.select(
+            *keys,
+            pl.col("hit_indices").alias("rank"),
+            pl.col("hit_scores").alias("running_score"),
+        )
+        .with_columns(pl.int_ranges(0, pl.col("rank").list.len()).alias("hit_order"))
+        .explode("rank", "running_score", "hit_order", empty_as_null=True)
     )
     leading = (
         terms.select(*keys, "leading_edge_ids")
@@ -286,7 +309,9 @@ def _gsea_memberships(terms: pl.DataFrame, sites: pl.DataFrame) -> pl.DataFrame:
         .unique()
     )
     return (
-        members.join(leading, on=[*keys, "sequence_window"], how="left")
+        members.join(hits, on=[*keys, "hit_order"], how="inner", validate="1:1")
+        .drop("hit_order")
+        .join(leading, on=[*keys, "sequence_window"], how="left")
         .with_columns(pl.col("is_leading_edge").fill_null(False))
         .join(site_windows, on="sequence_window", how="inner")
         .rename({"term_id": "sequence_set"})
@@ -298,10 +323,12 @@ def _gsea_memberships(terms: pl.DataFrame, sites: pl.DataFrame) -> pl.DataFrame:
             "protein_Id",
             "site",
             "sequence_window",
+            "rank",
+            "running_score",
             "is_leading_edge",
         )
         .unique()
-        .sort("source", "sequence_set", "protein_Id", "site")
+        .sort("source", "sequence_set", "rank", "protein_Id", "site")
     )
 
 
@@ -328,7 +355,7 @@ def _write_gsea_tables(
         if contrast not in contrast_index:
             msg = f"GSEA contrast has no matching statistics: {contrast}"
             raise ValueError(msg)
-        memberships = _gsea_memberships(chunk.terms, sites)
+        memberships = _gsea_memberships(chunk.terms, chunk.curves, sites)
         directory = root / stage / f"contrast-{contrast_index[contrast]}"
         directory.mkdir(parents=True)
         sequence_sets = chunk.terms.drop("gene_ids", "leading_edge_ids").rename(

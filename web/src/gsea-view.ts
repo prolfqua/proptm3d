@@ -43,6 +43,10 @@ export function renderGseaFindPanel(): TemplateResult {
           <div class="card-title"><span>Running enrichment</span><small id="gsea-curve-label"></small></div>
           <div class="card-body"><div id="gsea-curve" class="plot-host"></div><p id="gsea-curve-empty" class="empty-note" hidden></p></div>
         </div>
+        <div class="card gsea-sites-card">
+          <div class="card-title"><span>Ranked sites</span><small id="gsea-site-summary">Choose a sequence set</small></div>
+          <div class="card-body flush"><div id="gsea-site-table" class="table-host gsea-site-table"></div></div>
+        </div>
       </div>
     </div>`
 }

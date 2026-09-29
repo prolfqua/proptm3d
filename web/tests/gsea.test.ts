@@ -6,6 +6,7 @@ import {
   buildGseaVolcanoFigure,
   filterSitesByGsea,
   gseaSiteKeys,
+  selectedMemberships,
   sequenceSetKey,
   sequenceSetsAtFdr,
 } from '../src/gsea.js'
@@ -32,11 +33,11 @@ const payload: GseaPayload = {
   ],
   memberships: [
     { source: 'KinaseLib', sequence_set: 'ERK2', protein_Id: 'P1', site: 'S1',
-      sequence_window: 'AAAA', is_leading_edge: true },
+      sequence_window: 'AAAA', rank: 1, running_score: 0.8, is_leading_edge: true },
     { source: 'KinaseLib', sequence_set: 'ERK2', protein_Id: 'P1', site: 'S2',
-      sequence_window: 'BBBB', is_leading_edge: false },
+      sequence_window: 'BBBB', rank: 2, running_score: 1.8, is_leading_edge: false },
     { source: 'KinaseLib', sequence_set: 'AKT1', protein_Id: 'P2', site: 'S3',
-      sequence_window: 'CCCC', is_leading_edge: true },
+      sequence_window: 'CCCC', rank: 1, running_score: -0.5, is_leading_edge: true },
   ],
   curves: [
     { source: 'KinaseLib', sequence_set: 'ERK2', rank_indices: [0, 1, 2],
@@ -55,6 +56,7 @@ test('GSEA selection applies one optional site predicate with a leading-edge mod
   assert.deepEqual([...gseaSiteKeys(payload, key, false)], ['P1\u0000S1', 'P1\u0000S2'])
   assert.deepEqual(filterSitesByGsea(rows, payload, key, false), rows.slice(0, 2))
   assert.deepEqual(filterSitesByGsea(rows, payload, key, true), rows.slice(0, 1))
+  assert.deepEqual(selectedMemberships(payload, key, false).map((row) => row.rank), [1, 2])
 })
 
 test('GSEA FDR controls the sequence-set choices and overview threshold', () => {
@@ -70,6 +72,10 @@ test('selected sequence set renders its native running enrichment curve and hits
   assert.ok(figure)
   assert.deepEqual(figure.data[0].y, [0, 0.8, 1.8])
   assert.deepEqual(figure.data[1].x, [1, 2])
-  assert.deepEqual(figure.data[2].x, [1, 2])
+  assert.deepEqual(figure.data[2].x, [1])
+  assert.deepEqual(figure.data[1].customdata, [
+    [1, 'P1 · S1', ['P1\u0000S1\u00001']],
+    [2, 'P1 · S2', ['P1\u0000S2\u00002']],
+  ])
   assert.equal(buildEnrichmentFigure(payload, sequenceSetKey('KinaseLib', 'AKT1')), null)
 })

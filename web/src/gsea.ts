@@ -1,5 +1,5 @@
 import type { FigureSpec } from './charts.js'
-import type { GseaPayload, GseaSequenceSet } from './types.js'
+import type { GseaMembership, GseaPayload, GseaSequenceSet } from './types.js'
 
 export interface SiteIdentity {
   protein_Id: string
@@ -25,17 +25,32 @@ export function selectedSequenceSet(
   ) ?? null
 }
 
+export function membershipKey(row: GseaMembership): string {
+  return `${row.protein_Id}\u0000${row.site}\u0000${row.rank}`
+}
+
+export function selectedMemberships(
+  payload: GseaPayload,
+  selectedKey: string,
+  leadingEdgeOnly: boolean,
+): GseaMembership[] {
+  const selected = selectedSequenceSet(payload, selectedKey)
+  if (!selected) return []
+  return payload.memberships
+    .filter((row) => row.source === selected.source
+      && row.sequence_set === selected.sequence_set
+      && (!leadingEdgeOnly || row.is_leading_edge))
+    .sort((left, right) => left.rank - right.rank
+      || left.protein_Id.localeCompare(right.protein_Id)
+      || left.site.localeCompare(right.site))
+}
+
 export function gseaSiteKeys(
   payload: GseaPayload,
   selectedKey: string,
   leadingEdgeOnly: boolean,
 ): Set<string> {
-  const selected = selectedSequenceSet(payload, selectedKey)
-  if (!selected) return new Set()
-  return new Set(payload.memberships
-    .filter((row) => row.source === selected.source
-      && row.sequence_set === selected.sequence_set
-      && (!leadingEdgeOnly || row.is_leading_edge))
+  return new Set(selectedMemberships(payload, selectedKey, leadingEdgeOnly)
     .map((row) => `${row.protein_Id}\u0000${row.site}`))
 }
 
@@ -113,12 +128,23 @@ export function buildEnrichmentFigure(
   const curve = payload.curves.find((row) => row.source === selected.source
     && row.sequence_set === selected.sequence_set)
   if (!curve || curve.running_scores.length === 0) return null
-  const extremeScore = selected.nes >= 0
-    ? Math.max(...curve.running_scores)
-    : Math.min(...curve.running_scores)
-  const extremeRank = curve.rank_indices[curve.running_scores.indexOf(extremeScore)]
-  const leading = curve.hit_indices.map((rank, index) => ({ rank, score: curve.hit_scores[index] }))
-    .filter((hit) => selected.nes >= 0 ? hit.rank <= extremeRank : hit.rank >= extremeRank)
+  const memberships = selectedMemberships(payload, selectedKey, false)
+  const byRank = new Map<number, GseaMembership[]>()
+  for (const row of memberships) {
+    const rows = byRank.get(row.rank) ?? []
+    rows.push(row)
+    byRank.set(row.rank, rows)
+  }
+  const hitData = curve.hit_indices.map((rank) => {
+    const rows = byRank.get(rank) ?? []
+    return [rank, rows.map((row) => `${row.protein_Id} · ${row.site}`).join(', '),
+      rows.map(membershipKey)]
+  })
+  const leadingRanks = new Set(memberships
+    .filter((row) => row.is_leading_edge).map((row) => row.rank))
+  const leading = curve.hit_indices.map((rank, index) => ({
+    rank, score: curve.hit_scores[index], customdata: hitData[index],
+  })).filter((hit) => leadingRanks.has(hit.rank))
   return {
     data: [
       {
@@ -130,14 +156,18 @@ export function buildEnrichmentFigure(
       {
         type: 'scatter', mode: 'markers', name: 'Set member',
         x: curve.hit_indices, y: curve.hit_scores,
+        customdata: hitData,
         marker: { color: '#8d99a6', size: 7, symbol: 'line-ns-open' },
-        hovertemplate: 'Hit at rank %{x}<br>Running score %{y:.3f}<extra></extra>',
+        hovertemplate: 'Hit at rank %{customdata[0]}<br>%{customdata[1]}<br>'
+          + 'Running score %{y:.3f}<extra></extra>',
       },
       {
         type: 'scatter', mode: 'markers', name: 'Leading edge',
         x: leading.map((hit) => hit.rank), y: leading.map((hit) => hit.score),
+        customdata: leading.map((hit) => hit.customdata),
         marker: { color: '#ad3a2b', size: 8, symbol: 'line-ns-open' },
-        hovertemplate: 'Leading-edge hit at rank %{x}<br>Running score %{y:.3f}<extra></extra>',
+        hovertemplate: 'Leading-edge hit at rank %{customdata[0]}<br>%{customdata[1]}<br>'
+          + 'Running score %{y:.3f}<extra></extra>',
       },
     ],
     layout: plotLayout(

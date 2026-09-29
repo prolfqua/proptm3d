@@ -92,6 +92,10 @@ class PtmBrowserApp extends LitElement {
       this,
       () => this.refreshScopedViews(),
       (message, error) => this.setStatus(message, error),
+      (proteinId, site, contrast) => {
+        const protein = this.data?.proteins.find((row) => row.protein_Id === proteinId)
+        if (protein) void this.openProtein(protein, site, contrast)
+      },
     )
     this.el<HTMLButtonElement>('#upset-filter-enabled').addEventListener(
       'click',
@@ -143,7 +147,7 @@ class PtmBrowserApp extends LitElement {
       this.el('#run-counts').textContent = `${this.data.run.counts.proteins.toLocaleString()} proteins · ${this.data.run.counts.measured_sites.toLocaleString()} measured sites`
       this.syncDisplayedContrasts(null)
       this.refreshSummary()
-      await this.gsea?.configure(this.data.run, this.displayedContrast)
+      await this.gsea?.configure(this.data.run, this.displayedContrast, this.data.proteins)
       this.setStatus('Ready · local prepared data')
     } catch (error) {
       this.setStatus(error instanceof Error ? error.message : String(error), true)
@@ -196,7 +200,7 @@ class PtmBrowserApp extends LitElement {
     }
     this.gsea?.setVisible(this.mainView === 'find' && view === 'gsea')
     this.el('#gsea-workspace').hidden = view !== 'gsea'
-    this.el('#find-grid').hidden = view === 'sequlogos'
+    this.el('#find-grid').hidden = view === 'sequlogos' || view === 'gsea'
     this.el('#upset-card').hidden = view !== 'all'
     this.el('#focused-plots').hidden = view !== 'single'
     this.el('#find-plots').hidden = view !== 'sequlogos'
@@ -349,6 +353,7 @@ class PtmBrowserApp extends LitElement {
         }
       })
     const search = this.el<HTMLInputElement>('#find-search').value.trim().toLocaleLowerCase()
+    this.gsea?.setSiteSearch(search)
     const matching = search ? summaries.filter((row) => [row.gene_name, row.accession, row.protein_Id]
       .some((value) => value?.toLocaleLowerCase().includes(search))) : summaries
     this.findScopeProteinCount = summaries.length

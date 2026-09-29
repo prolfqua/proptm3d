@@ -71,6 +71,10 @@ type ParquetGseaSequenceSet = Omit<GseaSequenceSet, "genes_mapped" | "genes_in_s
   genes_in_set: number | bigint;
 };
 
+type ParquetGseaMembership = Omit<GseaMembership, "rank"> & {
+  rank: number | bigint;
+};
+
 type ParquetGseaCurve = Omit<GseaCurve, "rank_indices" | "hit_indices"> & {
   rank_indices: Array<number | bigint>;
   hit_indices: Array<number | bigint>;
@@ -254,7 +258,7 @@ export async function loadGseaPayload(
   if (!result || !files) return null;
   const [sets, memberships, curves] = await Promise.all([
     loadParquetRows<ParquetGseaSequenceSet>(files.sequence_sets_parquet, baseUrl),
-    loadParquetRows<GseaMembership>(files.memberships_parquet, baseUrl),
+    loadParquetRows<ParquetGseaMembership>(files.memberships_parquet, baseUrl),
     loadParquetRows<ParquetGseaCurve>(files.curves_parquet, baseUrl),
   ]);
   return {
@@ -265,7 +269,7 @@ export async function loadGseaPayload(
       genes_mapped: Number(row.genes_mapped),
       genes_in_set: Number(row.genes_in_set),
     })),
-    memberships,
+    memberships: memberships.map((row) => ({ ...row, rank: Number(row.rank) })),
     curves: curves.map((row) => ({
       ...row,
       rank_indices: row.rank_indices.map(Number),

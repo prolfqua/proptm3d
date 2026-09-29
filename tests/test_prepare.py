@@ -465,15 +465,21 @@ def test_prepare_gsea_writes_stats_and_gsea_parquet(prepared_h5mu, external_data
         }
     ]
     memberships = pl.read_parquet(folder / files["memberships_parquet"])
-    assert memberships.select("sequence_set", "site", "is_leading_edge").to_dicts() == [
+    assert memberships.select(
+        "sequence_set", "site", "rank", "running_score", "is_leading_edge"
+    ).to_dicts() == [
         {
             "sequence_set": "KINASE_X",
             "site": "P12345_S2~ASAA",
+            "rank": 0,
+            "running_score": 0.0,
             "is_leading_edge": True,
         },
         {
             "sequence_set": "KINASE_X",
             "site": "P12345_T4~AATA",
+            "rank": 1,
+            "running_score": 0.8,
             "is_leading_edge": False,
         },
     ]
@@ -497,6 +503,21 @@ def test_prepare_gsea_writes_stats_and_gsea_parquet(prepared_h5mu, external_data
         archive, tmp_path / "output_3d", ("DPA",), tmp_path / "cache"
     )
     assert replacement["counts"]["gsea_terms"] == 1
+
+
+def test_gsea_memberships_require_one_rank_per_sequence_window():
+    keys = {
+        "analysis": "DPA",
+        "contrast": "a_vs_b",
+        "source": "PTM-SEA",
+        "result_stage": "PTMSEA",
+        "term_id": "KINASE_X",
+    }
+    terms = pl.DataFrame([{**keys, "gene_ids": ["ASAA"], "leading_edge_ids": ["ASAA"]}])
+    curves = pl.DataFrame([{**keys, "hit_indices": [0, 1], "hit_scores": [0.0, 0.8]}])
+
+    with pytest.raises(ValueError, match="do not align"):
+        prepare._gsea_memberships(terms, curves, pl.DataFrame())
 
 
 def test_prepare_gsea_reads_unpacked_delivery_folder(prepared_h5mu, external_data, tmp_path):

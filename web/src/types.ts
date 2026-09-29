@@ -89,6 +89,8 @@ export interface GseaMembership {
   protein_Id: string;
   site: string;
   sequence_window: string;
+  rank: number;
+  running_score: number;
   is_leading_edge: boolean;
 }
 

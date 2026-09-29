@@ -242,7 +242,9 @@ ptm-browser-app { display: block; min-height: 100vh; }
 .gsea-find-panel { margin-bottom: 0.9rem; }
 .gsea-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.9rem; }
 .gsea-curve-card { grid-column: 1 / -1; }
+.gsea-sites-card { grid-column: 1 / -1; }
 .gsea-table { height: 390px; min-height: 390px; }
+.gsea-site-table { height: min(55vh, 620px); min-height: 390px; }
 .plot-host { height: 390px; min-width: 0; }
 .logos { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.9rem; }
 .logo-host { min-height: 235px; overflow-x: auto; }

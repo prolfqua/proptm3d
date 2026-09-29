@@ -12,8 +12,14 @@ import {
   sequenceSetsAtFdr,
   type SiteIdentity,
 } from './gsea.js'
-import { createGseaTable, gseaTableRows } from './gsea-table.js'
-import type { GseaPayload, RunManifest } from './types.js'
+import {
+  createGseaSiteTable,
+  createGseaTable,
+  gseaSiteTableRows,
+  gseaTableRows,
+  type GseaSiteTableRow,
+} from './gsea-table.js'
+import type { GseaPayload, ProteinCatalogRow, RunManifest } from './types.js'
 
 type Status = (message: string, error?: boolean) => void
 
@@ -30,11 +36,16 @@ export class GseaController {
   private loadId = 0
   private visible = false
   private table: TabulatorFull | null = null
+  private siteTable: TabulatorFull | null = null
+  private siteRows: GseaSiteTableRow[] = []
+  private proteins: readonly ProteinCatalogRow[] = []
+  private proteinSearch = ''
 
   constructor(
     private readonly root: HTMLElement,
     private readonly scopeChanged: () => void,
     private readonly setStatus: Status,
+    private readonly openSite: (proteinId: string, site: string, contrast: string) => void,
   ) {}
 
   private el<T extends HTMLElement>(selector: string): T {
@@ -43,9 +54,14 @@ export class GseaController {
     return element
   }
 
-  async configure(run: RunManifest, contrast: string): Promise<void> {
+  async configure(
+    run: RunManifest,
+    contrast: string,
+    proteins: readonly ProteinCatalogRow[],
+  ): Promise<void> {
     if (!run.gsea?.results.length) return
     this.run = run
+    this.proteins = proteins
     this.contrast = contrast
     const select = this.el<HTMLSelectElement>('#gsea-result')
     select.replaceChildren(...run.gsea.results.map((result) => new Option(result.label, result.id)))
@@ -58,6 +74,7 @@ export class GseaController {
 
   dispose(): void {
     this.table?.destroy()
+    this.siteTable?.destroy()
   }
 
   get filterKey(): string {
@@ -86,8 +103,15 @@ export class GseaController {
     this.visible = visible
     if (visible) {
       this.table?.redraw(true)
+      this.siteTable?.redraw(true)
       void this.renderPlots()
     }
+  }
+
+  setSiteSearch(search: string): void {
+    if (search === this.proteinSearch) return
+    this.proteinSearch = search
+    this.refreshSiteTable()
   }
 
   changeResult(event: Event): void {
@@ -105,6 +129,7 @@ export class GseaController {
     const wasFiltering = this.filterEnabled
     const changed = this.syncSequenceSet()
     this.refreshTable()
+    this.refreshSiteTable()
     void this.renderPlots()
     if (changed && (wasFiltering || this.filterEnabled)) this.scopeChanged()
   }
@@ -121,6 +146,7 @@ export class GseaController {
 
   changeLeadingEdge(): void {
     this.leadingEdgeOnly = this.el<HTMLInputElement>('#leading-edge-only').checked
+    this.refreshSiteTable()
     this.syncFilterControl()
     if (this.filterEnabled) this.scopeChanged()
   }
@@ -145,6 +171,7 @@ export class GseaController {
       this.payload = payload
       this.syncSequenceSet()
       this.refreshTable()
+      this.refreshSiteTable()
       this.syncFilterControl()
       if (this.visible) await this.renderPlots()
       if (wasFiltering || this.filterEnabled) this.scopeChanged()
@@ -154,6 +181,7 @@ export class GseaController {
       this.selectedKey = ''
       this.filterEnabled = false
       this.syncSequenceSetOptions([])
+      this.refreshSiteTable()
       this.syncFilterControl()
       if (wasFiltering) this.scopeChanged()
       this.setStatus(error instanceof Error ? error.message : String(error), true)
@@ -198,6 +226,7 @@ export class GseaController {
     this.selectedKey = key
     this.el<HTMLSelectElement>('#sequence-set').value = key
     this.syncSelectedRow()
+    this.refreshSiteTable()
     this.syncFilterControl()
     void this.renderPlots()
     if (changed && this.filterEnabled) this.scopeChanged()
@@ -221,6 +250,45 @@ export class GseaController {
     if (!this.table) return
     this.table.deselectRow()
     if (this.selectedKey && this.table.getRow(this.selectedKey)) this.table.selectRow(this.selectedKey)
+  }
+
+  private refreshSiteTable(): void {
+    this.siteRows = this.payload ? gseaSiteTableRows(
+      this.payload,
+      this.selectedKey,
+      this.leadingEdgeOnly,
+      this.proteins,
+      this.proteinSearch,
+    ) : []
+    const selected = this.payload ? selectedSequenceSet(this.payload, this.selectedKey) : null
+    this.el('#gsea-site-summary').textContent = selected
+      ? `${this.siteRows.length.toLocaleString()} ${this.leadingEdgeOnly ? 'leading-edge ' : ''}sites`
+        + ` · set NES ${selected.nes.toFixed(3)} · click a curve hit to select`
+      : 'Choose a sequence set'
+    if (!this.siteTable) {
+      this.siteTable = createGseaSiteTable(
+        this.el('#gsea-site-table'),
+        this.siteRows,
+        (row) => this.openSite(row.protein_Id, row.site, this.contrast),
+      )
+    } else {
+      void this.siteTable.replaceData(this.siteRows)
+    }
+  }
+
+  private selectCurveHit(customdata: unknown): void {
+    if (!this.siteTable || !Array.isArray(customdata) || !Array.isArray(customdata[2])) return
+    const rank = customdata[0]
+    const available = new Set(this.siteRows.map((row) => row.row_key))
+    const keys = customdata[2].filter(
+      (key): key is string => typeof key === 'string' && available.has(key),
+    )
+    this.siteTable.deselectRow()
+    if (!keys.length) return
+    this.siteTable.selectRow(keys)
+    void this.siteTable.scrollToRow(keys[0], 'center', false)
+    this.el('#gsea-site-summary').textContent = `${keys.length.toLocaleString()} site${keys.length === 1 ? '' : 's'}`
+      + ` selected at rank ${String(rank)} · click a row to inspect`
   }
 
   private syncFilterControl(): void {
@@ -260,6 +328,10 @@ export class GseaController {
     empty.textContent = selected
       ? 'This result does not contain a running enrichment curve for the selected sequence set.'
       : 'No sequence set passes the GSEA FDR cutoff.'
-    if (figure) await renderFigure(plot, figure)
+    if (figure) {
+      await renderFigure(plot, figure, undefined, 'cartesian', (customdata) => {
+        this.selectCurveHit(customdata)
+      })
+    }
   }
 }
