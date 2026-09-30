@@ -7,6 +7,7 @@ import { buildAbundanceFigure, buildNtoCFigure, buildProteinSiteFigure, buildVol
 import { loadAppData, loadProteinDetail } from './data.js'
 import { buildDetailRows, displayProteinDescription, type DetailRow, type EstimateType } from './detail.js'
 import { FilterPanel } from './filter-panel.js'
+import { FilterModel } from './filtering.js'
 import { GseaController } from './gsea-controller.js'
 import { computeLogos } from './logo.js'
 import { renderLogo } from './logo-view.js'
@@ -15,7 +16,7 @@ import { loadPlotBackgrounds, type PlotBackgrounds } from './plot-backgrounds.js
 import { ALL_STRUCTURES, structureLabel, type ExposureFilter, type RegionFilter, type StructuralFilters } from './structural.js'
 import { summarizeProteins, validCutoffs } from './summary.js'
 import type { AppData, ProteinCatalogRow, ProteinDetail, Thresholds } from './types.js'
-import { rowsForSites } from './upset.js'
+import { rowsForSites } from './upset-model.js'
 import type { SiteMarker, StructureViewer } from './structure.js'
 import type { StructureColoring } from './structure-colors.js'
 
@@ -36,6 +37,7 @@ class PtmBrowserApp extends LitElement {
   private findView: FindView = 'all'
   private detailView: DetailView = 'structure'
   private displayedContrast = ''
+  private estimateContrast = ''
   private estimateType: EstimateType = 'all'
   private structural: StructuralFilters = ALL_STRUCTURES
   private paeLoadId = 0
@@ -49,6 +51,7 @@ class PtmBrowserApp extends LitElement {
   private resizeFindPlotsAfterRender = false
   private focusedFigures: { volcano: FigureSpec; proteinSite: FigureSpec } | null = null
   private hoveredProteinId: string | null = null
+  private readonly filterModel = new FilterModel()
   private filters!: FilterPanel
   private gsea: GseaController | null = null
   private findScopeProteinCount = 0
@@ -61,6 +64,7 @@ class PtmBrowserApp extends LitElement {
     changeThresholds: () => this.changeThresholds(),
     changeDisplayedContrast: (event) => this.changeDisplayedContrast(event),
     changeEstimateType: (event) => this.changeEstimateType(event),
+    changeEstimateContrast: (event) => this.changeEstimateContrast(event),
     changeStructuralFilters: () => this.changeStructuralFilters(),
     refreshSummary: () => this.refreshSummary(),
     showMain: (view) => this.showMain(view),
@@ -68,9 +72,9 @@ class PtmBrowserApp extends LitElement {
     showDetailView: (view) => this.showDetailView(view),
     changeStructureStyle: () => this.changeStructureStyle(),
     changeGseaResult: (event) => this.gsea?.changeResult(event),
+    changeSequenceSet: (event) => this.gsea?.changeSequenceSet(event),
     changeGseaFdr: () => this.gsea?.changeFdr(),
     searchSequenceSets: () => this.gsea?.searchSequenceSets(),
-    changeSequenceSet: (event) => this.gsea?.changeSequenceSet(event),
     changeLeadingEdge: () => this.gsea?.changeLeadingEdge(),
   }
 
@@ -79,8 +83,8 @@ class PtmBrowserApp extends LitElement {
   protected render() { return renderApp(this.viewActions) }
 
   protected firstUpdated(): void {
-    this.filters = new FilterPanel(this, () => this.refreshScopedViews(),
-      key => this.gsea?.selectSequenceSet(key), message => this.setStatus(message, true))
+    this.filters = new FilterPanel(this, this.filterModel, () => this.refreshScopedViews(),
+      message => this.setStatus(message, true))
     this.gsea = new GseaController(
       this,
       () => this.refreshScopedViews(),
@@ -133,11 +137,12 @@ class PtmBrowserApp extends LitElement {
         throw new Error('Precomputed plot backgrounds are missing for a contrast.')
       }
       this.displayedContrast = this.data.run.contrasts[0] ?? ''
+      this.estimateContrast = this.displayedContrast
       this.el('#method-pill').textContent = this.data.run.method
       this.el('#run-counts').textContent = `${this.data.run.counts.proteins.toLocaleString()} proteins · ${this.data.run.counts.measured_sites.toLocaleString()} measured sites`
       this.syncDisplayedContrasts()
       this.refreshSummary()
-      await this.gsea?.configure(this.data, this.displayedContrast)
+      await this.gsea?.configure(this.data, this.displayedContrast, this.filterModel.bContrasts)
       this.setStatus('Ready · local prepared data')
     } catch (error) {
       this.setStatus(error instanceof Error ? error.message : String(error), true)
@@ -145,17 +150,24 @@ class PtmBrowserApp extends LitElement {
   }
 
   private syncDisplayedContrasts(): boolean {
-    const contrasts = this.data?.run.contrasts ?? []
+    const contrasts = this.filterModel.get('a').sets.length
+      ? this.filterModel.bContrasts : this.data?.run.contrasts ?? []
     const select = this.el<HTMLSelectElement>('#displayed-contrast')
-    const currentOptions = [...select.options].map((option) => option.value)
-    if (currentOptions.length !== contrasts.length
-      || currentOptions.some((contrast, index) => contrast !== contrasts[index])) {
-      select.replaceChildren()
-      for (const contrast of contrasts) select.add(new Option(contrast, contrast))
+    const currentOptions=[...select.options].map(option=>option.value)
+    if (currentOptions.length!==contrasts.length
+      || currentOptions.some((contrast,index)=>contrast!==contrasts[index])) {
+      select.replaceChildren(...contrasts.map(contrast=>new Option(contrast,contrast)))
     }
     const previous = this.displayedContrast
     if (!contrasts.includes(this.displayedContrast)) this.displayedContrast = contrasts[0] ?? ''
     select.value = this.displayedContrast
+    const estimates=this.data?.run.contrasts??[]
+    const estimateSelect=this.el<HTMLSelectElement>('#estimate-contrast')
+    if (estimateSelect.options.length!==estimates.length) {
+      estimateSelect.replaceChildren(...estimates.map(contrast=>new Option(contrast,contrast)))
+    }
+    if (!estimates.includes(this.estimateContrast)) this.estimateContrast=estimates[0]??''
+    estimateSelect.value=this.estimateContrast
     return previous !== this.displayedContrast
   }
 
@@ -209,7 +221,7 @@ class PtmBrowserApp extends LitElement {
 
   private changeDisplayedContrast(event: Event): void {
     this.displayedContrast = (event.target as HTMLSelectElement).value
-    void this.gsea?.setContrast(this.displayedContrast)
+    this.gsea?.restrictContrasts(this.filterModel.bContrasts,this.displayedContrast)
     this.refreshSummary()
     this.requestFindPlots()
     if (this.detail) void this.refreshDetail()
@@ -217,6 +229,13 @@ class PtmBrowserApp extends LitElement {
 
   private changeEstimateType(event: Event): void {
     this.estimateType = (event.target as HTMLSelectElement).value as EstimateType
+    this.refreshSummary()
+    this.requestFindPlots()
+    if (this.detail) void this.refreshDetail()
+  }
+
+  private changeEstimateContrast(event: Event): void {
+    this.estimateContrast=(event.target as HTMLSelectElement).value
     this.refreshSummary()
     this.requestFindPlots()
     if (this.detail) void this.refreshDetail()
@@ -263,6 +282,8 @@ class PtmBrowserApp extends LitElement {
 
   private refreshScopedViews(): void {
     if (!this.data) return
+    this.syncDisplayedContrasts()
+    this.gsea?.restrictContrasts(this.filterModel.bContrasts,this.displayedContrast)
     this.refreshSummary()
     this.requestFindPlots(true)
     if (this.detail) void this.refreshDetail()
@@ -270,9 +291,10 @@ class PtmBrowserApp extends LitElement {
 
   private refreshSummary(): void {
     if (!this.data) return
-    this.filters.update(this.data, this.displayedContrast, this.thresholds, this.estimateType, this.structural,
+    this.filters.update(this.data, this.estimateContrast, this.thresholds, this.estimateType, this.structural,
       this.gsea!.enrichment)
-    const selected = this.filters.siteKeys
+    this.gsea?.setBranchSelection(this.filterModel.state.b)
+    const selected = this.filterModel.siteKeys
     const sites = rowsForSites(this.data.sites, selected)
     const results = rowsForSites(this.data.siteIndex, selected)
     const byProtein = new Map<string, typeof sites>()
@@ -299,11 +321,11 @@ class PtmBrowserApp extends LitElement {
   }
 
   private findPlotKey(): string {
-    return [this.findView,this.displayedContrast,this.filters.revision].join('\u0000')
+    return [this.findView,this.displayedContrast,this.filterModel.revision].join('\u0000')
   }
 
   private visiblePlotSites() {
-    return rowsForSites(this.data!.siteIndex,this.filters.siteKeys)
+    return rowsForSites(this.data!.siteIndex,this.filterModel.siteKeys)
   }
 
   private requestFindPlots(debounce = false): void {
@@ -419,7 +441,7 @@ class PtmBrowserApp extends LitElement {
         const key = this.findPlotKey()
         if (this.renderedFindPlotKey === key || this.findPlotTimer !== null) break
         const siteIndex = this.visiblePlotSites()
-        const selectedCount = this.filters.siteKeys.size
+        const selectedCount = this.filterModel.siteKeys.size
         const highlightIntersection = true
         const contrast = this.displayedContrast
         const thresholds = this.thresholds
@@ -518,7 +540,6 @@ class PtmBrowserApp extends LitElement {
       this.detail = detail
       if (contrast) {
         this.displayedContrast = contrast
-        void this.gsea?.setContrast(contrast)
       }
       this.el<HTMLSelectElement>('#displayed-contrast').value = this.displayedContrast
       this.refreshSummary()
@@ -541,7 +562,7 @@ class PtmBrowserApp extends LitElement {
 
   private visibleDetailRows(): DetailRow[] {
     if (!this.detail) return []
-    return rowsForSites(buildDetailRows(this.detail, this.displayedContrast, this.thresholds), this.filters.siteKeys)
+    return rowsForSites(buildDetailRows(this.detail, this.displayedContrast, this.thresholds), this.filterModel.siteKeys)
   }
 
   private async refreshDetail(loadStructure = false): Promise<void> {

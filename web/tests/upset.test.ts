@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { UNAVAILABLE_STRUCTURE } from '../src/structural.js'
-import { contrastSets } from '../src/filtering.js'
-import { buildUpSetFigure, computeUpSet, displayedUpSet, intersectionDegrees, intersectionsAtDegree, rankedUpSetDisplay, resolveSelection, rowsForSites, siteIdentity, UpSetPlot } from '../src/upset.js'
+import { contrastRelation } from '../src/filtering.js'
+import { computeUpSet as evaluate, displayedUpSet, intersectionDegrees, intersectionsAtDegree, rankedUpSetDisplay, resolveSelection, rowsForSites, siteIdentity, type SiteSet } from '../src/upset-model.js'
+import { buildUpSetFigure, UpSetPlot } from '../src/upset.js'
 import type { AppData, SiteIndexRow } from '../src/types.js'
+
+function computeUpSet(sets: SiteSet[]) {
+  return evaluate(sets,sets.flatMap(set=>[...set.siteKeys].map(site=>[site,set.id] as const)))
+}
 
 function row(overrides: Partial<SiteIndexRow> = {}): SiteIndexRow {
   return {
@@ -22,7 +27,7 @@ test('A uses strict significance; whole sets include shared sites and identity k
   const rows = [row(),row({contrast:'B'}),row({contrast:'C',fdr:.4}),
     row({site:'T20',effect:1}),row({site:'T21',fdr:.05}),row({site:'S30'}),row({site:'S30'})]
   const data = {siteIndex:rows,run:{contrasts:['A','B','C']}} as AppData
-  const model = computeUpSet(contrastSets(data,{fdr:.05,absEffect:1}))
+  const model = contrastRelation(data,{fdr:.05,absEffect:1})
   assert.deepEqual(model.sets.map(s=>s.siteKeys.size),[2,1,0])
   const shared = resolveSelection(model,{kind:'intersection',ids:['A','B']})!
   assert.deepEqual(shared,new Set([siteIdentity('P1','S10')]))

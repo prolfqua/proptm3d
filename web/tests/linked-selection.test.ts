@@ -2,14 +2,13 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { html } from 'lit'
 import { buildDetailRows } from '../src/detail.js'
-import { contrastSets, FilterSelection, propertySets } from '../src/filtering.js'
-import { FilterPanel, renderFilters, type EnrichmentSets } from '../src/filter-panel.js'
+import { FilterModel, type EnrichmentInput } from '../src/filtering.js'
+import { FilterPanel, renderFilters } from '../src/filter-panel.js'
 import { gseaSiteTableRows } from '../src/gsea.js'
 import { computeLogos } from '../src/logo.js'
 import { ALL_STRUCTURES, UNAVAILABLE_STRUCTURE } from '../src/structural.js'
-import { computeUpSet, rowsForSites, siteIdentity } from '../src/upset.js'
-import type { SetSelection } from '../src/upset.js'
-import type { AppData, ProteinDetail } from '../src/types.js'
+import { rowsForSites, siteIdentity, type SetSelection } from '../src/upset-model.js'
+import type { AppData, GseaPayload, ProteinDetail } from '../src/types.js'
 
 const thresholds = {fdr:0.05,absEffect:1}
 const sites = ['S1','S2','S3','S4'].map((site,i)=>({
@@ -22,36 +21,67 @@ const data = {run:{contrasts:['early','late']},sites,siteIndex:[
   {...sites[1],contrast:'early',effect:0.2,fdr:0.5,site_estimate_type:'observed',sequence_window:sites[1].SequenceWindow},
 ]} as unknown as AppData
 const universe = new Set(sites.map(s=>siteIdentity(s.protein_Id,s.site)))
+const enrichment: EnrichmentInput = {payload:null,fdr:0.05,leading:false,
+  context:'result\u0000early',revision:1,status:'Ready',ready:true}
+const emptyPayload={sequenceSets:[],memberships:[],curves:[]} as unknown as GseaPayload
 
 test('filter collapse keeps context navigation and the current selection summary visible', () => {
   const view=renderFilters({a:html``,b:html``,c:html``},html``)
   const markup=view.strings.join('')
+  assert.ok(markup.indexOf('class="filter-navigation"')<markup.indexOf('id="toggle-filters"'))
   assert.ok(markup.indexOf('id="filter-summary"')<markup.indexOf('id="filter-body"'))
-  assert.ok(markup.indexOf('class="filter-navigation"')<markup.indexOf('id="filter-body"'))
   assert.ok(!markup.includes('data-upset-view'), 'view controls are rendered by the shared UpSet plot')
 
   const {panel,el}=panelFixture()
   const summary=el('#filter-summary').textContent
+  assert.match(summary,/Filtering by A/)
   assert.match(summary,/1 \/ 4 sites selected · A: all · C: all/)
   el('#filter-body').hidden=false
   el('#toggle-filters').onclick()
   assert.equal(el('#filter-body').hidden,true)
   assert.equal(el('#filter-summary').textContent,summary)
-  panel.state.showAll=true
+  panel.model.setShowAll(true)
   panel.update(data,'early',{fdr:0.01,absEffect:1},'all',ALL_STRUCTURES,
-    {sets:[],context:'result\u0000early',revision:2,status:'Ready',ready:true})
+    {...enrichment,revision:2})
   assert.match(el('#filter-summary').textContent,/Showing all 4 measured sites \(filters paused\)/)
   panel.update(data,'early',{fdr:0.01,absEffect:1},'all',{exposure:'exposed',region:'idr'},
-    {sets:[],context:'result\u0000early',revision:3,status:'Ready',ready:true})
+    {...enrichment,revision:3})
   assert.match(el('#filter-summary').textContent,/exposure: exposed · region: idr/)
+  const withGsea={...data,run:{...data.run,gsea:{results:[{id:'result'}]}}} as AppData
+  panel.model.setShowAll(false)
+  panel.update(withGsea,'early',thresholds,'all',ALL_STRUCTURES,
+    {...enrichment,payload:emptyPayload,context:'result\u0000late',revision:4})
+  const choose=panel as unknown as {select:(branch:string,selection:SetSelection)=>void}
+  choose.select('b',{kind:'all'})
+  assert.match(el('#filter-summary').textContent,/B filter: result · late/)
+})
+
+test('filter warning names only the branches that currently affect results', () => {
+  const {panel,el}=panelFixture()
+  const choose=panel as unknown as {select:(branch:string,selection:SetSelection)=>void}
+  choose.select('a',{kind:'off'})
+  assert.match(el('#filter-summary').textContent,/No active filters/)
+  panel.update(data,'early',thresholds,'all',{exposure:'exposed',region:'all'},
+    {...enrichment,revision:2})
+  assert.match(el('#filter-summary').textContent,/Filtering by C/)
+  const withGsea={...data,run:{...data.run,gsea:{results:[{id:'result'}]}}} as AppData
+  panel.update(withGsea,'early',thresholds,'all',{exposure:'exposed',region:'all'},
+    {...enrichment,revision:3,payload:emptyPayload})
+  choose.select('b',{kind:'all'})
+  assert.match(el('#filter-summary').textContent,/Filtering by B \+ C/)
+  choose.select('a',{kind:'all'})
+  assert.match(el('#filter-summary').textContent,/Filtering by A \+ B \+ C/)
+  panel.update(withGsea,'early',thresholds,'all',ALL_STRUCTURES,
+    {...enrichment,revision:4,payload:emptyPayload})
+  assert.match(el('#filter-summary').textContent,/Filtering by A \+ B/)
+  el('#show-all-sites').onchange({target:{checked:true}})
+  assert.match(el('#filter-summary').textContent,/Filters paused/)
 })
 
 test('C union reaches tables, detail and logos without an implicit significance AND', () => {
-  const state = new FilterSelection()
-  const a = computeUpSet(contrastSets(data,thresholds))
-  const props = propertySets(data,'early','all',{exposure:'exposed',region:'all'})
-  const c = state.combine(a,computeUpSet([]),props,false)
-  const selected = state.effective(c,universe)
+  const model=new FilterModel()
+  model.update(data,'early',thresholds,'all',{exposure:'exposed',region:'all'},enrichment)
+  const selected=model.siteKeys
   assert.deepEqual(selected,new Set(['P1\u0000S1','P1\u0000S2','P1\u0000S3']))
   const detail = {sites:data.sites,results:data.siteIndex,context:[]} as unknown as ProteinDetail
   const rows = rowsForSites(buildDetailRows(detail,'early',thresholds),selected)
@@ -65,16 +95,20 @@ test('C union reaches tables, detail and logos without an implicit significance 
   assert.equal(rows[2].estimate_status,'No result')
   const logos = computeLogos(rowsForSites(data.siteIndex,selected),'early')
   assert.equal(logos.upCount,2, 'low fold-change/high-FDR selected site still contributes')
-  state.c={kind:'intersection',ids:['exposure']}
-  assert.deepEqual(state.effective(c,universe),new Set(['P1\u0000S2','P1\u0000S3']))
-  state.a={kind:'off'}
-  assert.deepEqual(state.effective(state.combine(a,computeUpSet([]),propertySets(data,'early','all',ALL_STRUCTURES),false),universe),universe)
+  model.select('c',{kind:'intersection',ids:['exposure']})
+  assert.deepEqual(model.siteKeys,new Set(['P1\u0000S2','P1\u0000S3']))
+  model.select('a',{kind:'off'})
+  model.update(data,'early',thresholds,'all',ALL_STRUCTURES,{...enrichment,revision:2})
+  assert.deepEqual(model.siteKeys,universe)
 })
 
 test('estimate is a separate operand and includes no missing estimates; All disables it', () => {
-  const observed = propertySets(data,'early','observed',ALL_STRUCTURES)[0]
+  const model=new FilterModel()
+  model.update(data,'early',thresholds,'observed',ALL_STRUCTURES,enrichment)
+  const observed = model.properties[0]
   assert.deepEqual(observed.siteKeys,new Set(['P1\u0000S1','P1\u0000S2']))
-  assert.equal(propertySets(data,'early','all',ALL_STRUCTURES)[0].enabled,false)
+  model.update(data,'early',thresholds,'all',ALL_STRUCTURES,{...enrichment,revision:2})
+  assert.equal(model.properties[0].enabled,false)
 })
 
 // A minimal DOM surface exercises actual panel events without loading Plotly in Node.
@@ -96,8 +130,7 @@ function panelFixture() {
   })
   const root = {querySelector:el,querySelectorAll:(query:string)=>query==='[data-filter-branch]'?buttons
     : query==='[data-upset-degree]'?degrees:query.startsWith('#fdr-cutoff')?query.split(', ').map(el):[]}
-  const panel = new FilterPanel(root as unknown as HTMLElement,()=>{},()=>{},message=>assert.fail(message))
-  const enrichment: EnrichmentSets = {sets:[],context:'result\u0000early',revision:1,status:'Ready',ready:true}
+  const panel = new FilterPanel(root as unknown as HTMLElement,new FilterModel(),()=>{},message=>assert.fail(message))
   const update = (next=enrichment, cutoff=thresholds)=>panel.update(data,'early',cutoff,'all',ALL_STRUCTURES,next)
   update()
   return {panel,el,update,enrichment}
@@ -105,14 +138,14 @@ function panelFixture() {
 
 test('upstream edits reset C, preserve empty A, and show-all suspends only filter editing', () => {
   const {panel,el,update} = panelFixture()
-  panel.state.a={kind:'set',id:'early'}
-  panel.state.c={kind:'intersection',ids:['contrast_selection']}
+  panel.model.select('a',{kind:'set',id:'early'})
+  panel.model.select('c',{kind:'intersection',ids:['contrast_selection']})
   update(undefined,{fdr:0.0001,absEffect:1})
   assert.deepEqual(panel.state.a,{kind:'set',id:'early'})
   assert.equal(panel.siteKeys.size,0)
-  assert.equal(panel.state.c.kind,'all')
+  assert.deepEqual(panel.state.c,{kind:'all'})
   assert.match(el('#filter-notice').textContent,/C returned to all/)
-  panel.state.c={kind:'intersection',ids:['contrast_selection']}
+  panel.model.select('c',{kind:'intersection',ids:['contrast_selection']})
   el('#show-all-sites').onchange({target:{checked:true}})
   assert.deepEqual(panel.siteKeys,universe)
   assert.equal(el('#fdr-cutoff').disabled,true)
@@ -120,26 +153,31 @@ test('upstream edits reset C, preserve empty A, and show-all suspends only filte
   assert.equal(el('#displayed-contrast').disabled,false)
   el('#show-all-sites').onchange({target:{checked:false}})
   assert.equal(panel.siteKeys.size,0)
-  assert.equal(panel.state.c.kind,'intersection')
+  assert.deepEqual(panel.state.c,{kind:'intersection',ids:['contrast_selection']})
   el('#clear-c').onclick()
-  assert.equal(panel.state.c.kind,'all')
+  assert.deepEqual(panel.state.c,{kind:'all'})
   assert.deepEqual(panel.state.a,{kind:'set',id:'early'})
 })
 
 test('loading/error/empty are distinct, B Off stays usable and stats-only omits B', () => {
-  const {panel,el,update,enrichment} = panelFixture()
+  const {panel,el}=panelFixture()
   assert.equal(el('#filter-b-card').hidden,true)
-  panel.state.a={kind:'off'}
-  panel.state.b={kind:'all'}
-  update({...enrichment,revision:2,ready:false,status:'Loading enrichment…'})
+  assert.equal(panel.model.select('b',{kind:'all'}),false)
+  const withGsea = {...data,run:{...data.run,gsea:{results:[{id:'result'}]}}} as AppData
+  panel.update(withGsea,'early',thresholds,'all',ALL_STRUCTURES,{...enrichment,revision:2,
+    payload:emptyPayload})
+  panel.model.select('a',{kind:'off'})
+  panel.model.select('b',{kind:'all'})
+  panel.update(withGsea,'early',thresholds,'all',ALL_STRUCTURES,
+    {...enrichment,revision:3,payload:null,ready:false,status:'Loading enrichment…'})
   assert.equal(panel.siteKeys.size,0)
   assert.equal(el('b-off').disabled,false)
   assert.equal(el('b-all').disabled,true)
   el('b-off').onclick()
   assert.deepEqual(panel.siteKeys,universe)
-  panel.state.b={kind:'all'}
-  const withGsea = {...data,run:{...data.run,gsea:{results:[{id:'result'}]}}} as AppData
-  panel.update(withGsea,'early',thresholds,'all',ALL_STRUCTURES,{...enrichment,revision:3})
+  panel.update(withGsea,'early',thresholds,'all',ALL_STRUCTURES,{...enrichment,revision:4,
+    payload:emptyPayload})
+  panel.model.select('b',{kind:'all'})
   assert.equal(panel.siteKeys.size,0, 'loaded empty B All must not bypass filtering')
   assert.equal(el('#filter-b-card').hidden,false)
 })
@@ -147,7 +185,7 @@ test('loading/error/empty are distinct, B Off stays usable and stats-only omits 
 test('C whole-set bars select shared members and reclick restores union without changing A/B', () => {
   const {panel}=panelFixture()
   panel.update(data,'early',thresholds,'all',{exposure:'exposed',region:'all'},
-    {sets:[],context:'result\u0000early',revision:2,status:'Ready',ready:true})
+    {...enrichment,revision:2})
   const choose=panel as unknown as {select:(branch:string,selection:SetSelection)=>void}
   choose.select('c',{kind:'set',id:'exposure'})
   assert.deepEqual(panel.siteKeys,new Set(['P1\u0000S2','P1\u0000S3']))
@@ -159,8 +197,8 @@ test('C whole-set bars select shared members and reclick restores union without 
 
 test('display degree changes preserve A/B/C selections, site counts and Show all', () => {
   const {panel,el}=panelFixture()
-  panel.state.a={kind:'set',id:'early'}
-  panel.state.c={kind:'intersection',ids:['contrast_selection']}
+  panel.model.select('a',{kind:'set',id:'early'})
+  panel.model.select('c',{kind:'intersection',ids:['contrast_selection']})
   const selections=JSON.stringify(panel.state), keys=panel.siteKeys, revision=panel.revision
   for (const branch of ['a','b']) {
     const control=el(`#filter-${branch}-degree`)

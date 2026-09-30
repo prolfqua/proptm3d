@@ -125,6 +125,7 @@ ptm-browser-app { display: block; min-height: 100vh; }
   margin-bottom: 0.9rem;
 }
 .gsea-controls:not([hidden]) { display: contents; }
+.gsea-navigation:not([hidden]) { display: contents; }
 .gsea-checkbox {
   display: flex;
   align-items: center;
@@ -272,12 +273,18 @@ ptm-browser-app { display: block; min-height: 100vh; }
 }
 #find-table .tabulator-header .tabulator-col .tabulator-col-title-holder { min-height: 2.5em; }
 
-.filter-panel { margin: 1rem 0; border: 1px solid #dce3ea; border-radius: 8px; background: #fff; }
+.filter-panel { margin: .6rem 0 1rem; border: 1px solid #dce3ea; border-radius: 8px; background: #fff; }
 .filter-state-bar { display: flex; align-items: center; gap: .75rem; padding: .6rem .9rem; border-bottom: 1px solid var(--line); }
 .filter-state-bar button { flex: none; }
 .filter-summary { min-width: 0; color: var(--muted); font-size: .8rem; line-height: 1.35; }
-.filter-navigation { display: flex; flex-wrap: wrap; align-items: end; gap: .6rem 1rem; padding: .75rem .9rem; border-bottom: 1px solid var(--line); }
+.filter-state-bar.has-active-filters { border-left: 4px solid #bd2832; background: #fff1f2; }
+.filter-state-bar.has-active-filters .filter-summary { color: #8f1825; font-weight: 650; }
+.filter-state-bar.has-active-filters button { border-color: #bd2832; color: #8f1825; }
+.filter-navigation { display: flex; flex-wrap: wrap; align-items: end; gap: .6rem 1rem; padding: .75rem .9rem; margin-top: 1rem; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); }
 .filter-navigation .control { flex: 0 1 20rem; }
+.filter-navigation .gsea-result { flex: 0 1 17rem; }
+.filter-navigation .gsea-result select { border-color: #8faac6; font-weight: 600; }
+.filter-navigation .sequence-set { flex: 0 1 18rem; }
 .filter-navigation .global-search { flex: 1 1 18rem; }
 .filter-navigation .subtle { flex-basis: 100%; font-size: .75rem; }
 .filter-branch-control { display: flex; align-items: center; flex-wrap: wrap; gap: .4rem; padding: .6rem .9rem; border-bottom: 1px solid var(--line); }
@@ -297,9 +304,7 @@ ptm-browser-app { display: block; min-height: 100vh; }
 #filter-c-card { grid-area: c; }
 .upset-controls { display: flex; flex-wrap: wrap; align-items: end; gap: .6rem 1rem; padding: .6rem .9rem; border-bottom: 1px solid var(--line); }
 .upset-controls .control.threshold { flex: 0 0 7rem; min-width: 0; }
-.upset-controls .gsea-result { width: 10rem; }
 .upset-controls .sequence-search { width: 11rem; }
-.upset-controls .sequence-set { flex: 1 1 13rem; max-width: 18rem; }
 .upset-controls .estimate, .upset-controls .structural { width: 9rem; }
 .upset-controls .subtle { flex-basis: 100%; font-size: .75rem; }
 .upset-scroll { overflow: auto; max-height: 480px; }

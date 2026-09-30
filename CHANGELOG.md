@@ -6,6 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Documentation now maps the prepared entities and keys to the browser's A/B/C set-query model and identifies the current model/view boundary.
 - UpSet panels now offer a Selected/All display toggle: selecting a set focuses its intersection columns, selecting an exact intersection focuses its member rows, and All restores the full plot without changing site filtering.
 - A `proptm3d` command prepares DPA, DPU, and CF-DPU static browser sites from `PTM_statistics.h5mu`, statistics delivery ZIPs, or completed delivery ZIPs containing `PTM_results.h5mu`.
 - `prepare stats` exports measured proteins and sites, method-specific effects and FDRs, aligned sample evidence, original site and total-protein effects, UniProt annotations, AlphaFold model metadata, and structural context as Parquet tables.
@@ -24,14 +25,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- A's selected contrast names now restrict the upper contrast chooser; choosing one A contrast loads it in B automatically. That upper choice also drives the plots and protein detail, while A/B site sets still combine only in C.
+- Browser filtering now derives A, B and C from one in-memory site–set membership model; the UpSet plots only display its results, while GSEA loading remains independent. Prepared Parquet files and filter behavior are unchanged.
+- A, B and C now use the same whole-set, exact-intersection and reclick selection rules across linked views; existing site counts, filters and prepared data remain unchanged.
 - The reusable UpSet plot now owns its Selected/All display toggle in the plot's top-left corner, consistently across A, B and C.
 - In a named-set Selected UpSet view, left bars show overlap counts from matching intersections, put the chosen set first, and omit zero-overlap rows; dot-count choices update these plotted counts without changing site filtering or paging totals.
 - Collapsing the filtering UpSets now leaves the contrast selector, protein search, and a compact selected-site, A/B/C state and active-property summary visible.
 - `serve --help` now identifies the prepared output root and distinguishes DPA/DPU/CF-DPU method names from the `prepare gsea` mode; the quickstart gives the concrete MiMB folder and an alternate port for an occupied default port.
-- Contrast display and protein search live in the filtering panel without changing A/B/C membership. C's selection count, Clear C and Show all sites live in C; inactive Clear C is hidden, and the contrast/search labels distinguish navigation from site filtering.
-- The B curve selector now states that it changes only the displayed running curve, not site filtering.
+- The upper contrast and protein search remain visible above the collapsible filtering panel. Protein search is display-only; the shared upper contrast also changes B's GSEA context when B is active. C's selection count, Clear C and Show all sites live in C; inactive Clear C is hidden.
+- B-selected sequence sets now determine the GSEA table rows, highlighted volcano points, and available upper running-curve choices. A table row or volcano point still opens an available running curve without changing the site filter.
 - A and B selection controls and counts now sit inside their respective UpSet cards; B fills the left column while A and C stack on the right, with a single-column layout on narrower screens.
-- Site FDR and |log2FC| controls sit in A; GSEA FDR, enrichment-result, sequence-set search, curve focus and leading-edge controls sit in B; Estimate, Exposure and Region sit in C. The Settings tab is removed. A and B have display-only dots-per-intersection dropdowns (exclusive to one set, exactly two sets, etc.), with paging over matching columns and no changes to selected sites or whole-set counts; C shows combinations passing every active property choice and at least one A/B selection, while All retains the full union.
+- Site FDR and |log2FC| controls sit in A; GSEA FDR, sequence-set search and leading-edge controls sit in B; Estimate, Exposure and Region sit in C. The shared contrast, GSEA method and curve focus sit above the filter. The Settings tab is removed. A and B have display-only dots-per-intersection dropdowns (exclusive to one set, exactly two sets, etc.), with paging over matching columns and no changes to selected sites or whole-set counts; C shows combinations passing every active property choice and at least one A/B selection, while All retains the full union.
 - `prepare stats` and `prepare gsea` accept either delivery ZIPs or their unpacked folders; statistics preparation prefers `PTM_results.h5mu` when both result and statistics stages are present.
 - `prepare stats` and `prepare gsea` now default to `proptm3d_<input basename>` beside the input when no output folder is supplied; omitting the method prepares all methods, while a method-only positional selects that method in the default folder.
 - `bundle FOLDER` now bundles every prepared method and writes the shared method-chooser entry page; `--in FOLDER` remains available when positional methods select a subset.
@@ -59,6 +63,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Dots-per-intersection dropdowns offer only counts with actual intersections. If a selected count disappears after a filter change, the display returns to All intersections without changing the site selection.
 - UpSet plots retain their row-aware height after window resizing instead of collapsing inside their scroll containers.
 - UpSet A/B set rows now run largest-first, and dark horizontal count labels sit outside bars without shrinking or rotating. C's set-size bars select whole filter sets, including shared sites. Statistical plots and logos explicitly account for selected sites with missing values; the orange legend now says “Selected, outside thresholds” for the current contrast.
+- Contrast, GSEA method, running-curve sequence set and protein search now sit above the collapsible filters. A limits the upper contrast choices and that contrast drives B's GSEA context; the duplicate B contrast picker is removed. B's selected sets and effective sites limit the upper curve choices, and an active B locks the GSEA method. Switching contrast while B is active visibly reloads B and may change selected sites. C has its own Estimate contrast, and the lower filter bar turns red and names active A/B/C branches.
 - GSEA memberships now join sequence windows to source `gene_pool` ranks instead of pairing differently ordered member/hit arrays. Rank `r` uses `running_scores[r - 1]`; invalid coordinates fail clearly instead of inventing zero scores. Re-prepare GSEA outputs to correct existing exported ranks.
 
 ### Renamed

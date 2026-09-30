@@ -1,5 +1,7 @@
 # Prepared data contract
 
+For the browser's logical joins and A/B/C selection semantics built from these files, see the [filtering data model](filter-model.md).
+
 Each method is exported directly under the explicitly selected folder as `FOLDER/DPA`, `FOLDER/DPU`, or `FOLDER/CF-DPU`. The `data/run.json` manifest identifies the method, preparation kind, available files, contrasts, samples, and coverage counts. `serve METHOD FOLDER` serves one method, while `serve FOLDER` adds an in-memory overview for all prepared methods. Neither mode proxies external services or modifies the prepared root.
 
 Statistics preparation reads MuData schema `2.0.0` from either `PTM_statistics.h5mu` or the statistics-bearing `PTM_results.h5mu` in a completed delivery. Result tables are AnnData data frames stored directly in `varm`, with one row per modality feature. Every matching key contributes a contrast: `enriched/varm/dpa__<contrast>` for DPA, `enriched/varm/dpu__<contrast>` for DPU, and `enriched_CF/varm/correct_first_protein_imputed__<contrast>` for CF-DPU. CF-DPU uses the protein-imputed CorrectFirst abundance matrix in `enriched_CF/layers/correct_first_protein_imputed`. The old `mod/cf` and split result-matrix representation are not supported.

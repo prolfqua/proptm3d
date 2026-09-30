@@ -2,18 +2,24 @@ import { html, type TemplateResult } from 'lit'
 
 export interface GseaViewActions {
   changeGseaResult: (event: Event) => void
+  changeSequenceSet: (event: Event) => void
   changeGseaFdr: () => void
   searchSequenceSets: () => void
-  changeSequenceSet: (event: Event) => void
   changeLeadingEdge: () => void
+}
+
+export function renderGseaNavigation(actions: GseaViewActions): TemplateResult {
+  return html`<div id="gsea-navigation" class="gsea-navigation" hidden>
+    <div class="control gsea-result"><label for="gsea-result">GSEA method</label><select id="gsea-result" @change=${actions.changeGseaResult}></select></div>
+    <div class="control sequence-set"><label for="sequence-set">Sequence set · running curve</label><select id="sequence-set" title="Choose a running curve for display; B selects sites." @change=${actions.changeSequenceSet}></select></div>
+  </div>`
 }
 
 export function renderGseaControls(actions: GseaViewActions): TemplateResult {
   return html`
     <div id="gsea-controls" class="gsea-controls" hidden>
-      <div class="control gsea-result"><label for="gsea-result">Enrichment result</label><select id="gsea-result" @change=${actions.changeGseaResult}></select></div>
+      <div class="control threshold"><label for="gsea-fdr">GSEA FDR &lt;</label><input id="gsea-fdr" type="number" min="0" max="1" step="0.01" value="0.05" @input=${actions.changeGseaFdr} /></div>
       <div class="control sequence-search"><label for="sequence-set-search">Find sequence set</label><input id="sequence-set-search" type="search" placeholder="Kinase or set name" @input=${actions.searchSequenceSets} /></div>
-      <div class="control sequence-set"><label for="sequence-set">Running curve for</label><select id="sequence-set" aria-describedby="sequence-set-help" @change=${actions.changeSequenceSet}></select><span id="sequence-set-help" class="subtle">Display only; B selects sites.</span></div>
       <label class="gsea-checkbox"><input id="leading-edge-only" type="checkbox" @change=${actions.changeLeadingEdge} /> Leading edge only</label>
     </div>`
 }
@@ -27,7 +33,7 @@ export function renderGseaFindPanel(): TemplateResult {
           <div class="card-body"><div id="gsea-volcano" class="plot-host"></div></div>
         </div>
         <div class="card">
-          <div class="card-title"><span>Sequence sets</span><small>Click a row to show its curve</small></div>
+          <div class="card-title"><span>Sequence sets</span><small>Click a row to inspect its curve</small></div>
           <div class="card-body flush"><div id="gsea-table" class="table-host gsea-table"></div></div>
         </div>
         <div class="card gsea-curve-card">

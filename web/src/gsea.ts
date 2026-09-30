@@ -1,6 +1,25 @@
-import { rowsForSites, siteIdentity } from './upset.js'
+import { rowsForSites, siteIdentity, type SetSelection } from './upset-model.js'
 import type { FigureSpec } from './charts.js'
-import type { AppData, GseaMembership, GseaPayload, GseaSequenceSet } from './types.js'
+import type { AppData, GseaMembership, GseaPayload, GseaResultManifest, GseaSequenceSet,
+  RunManifest } from './types.js'
+
+export function availableEnrichmentScopes(run: RunManifest, allowed: readonly string[]):
+  Array<{result:GseaResultManifest; contrasts:string[]}> {
+  const permitted=new Set(allowed)
+  return (run.gsea?.results??[]).map(result=>({result,
+    contrasts:run.contrasts.filter(contrast=>permitted.has(contrast)&&Boolean(result.contrasts[contrast])),
+  })).filter(scope=>scope.contrasts.length>0)
+}
+
+/** Preserve the current single-contrast context when possible, otherwise choose the first permitted one. */
+export function resolveEnrichmentContext(run: RunManifest, allowed: readonly string[],
+  currentResult: string, currentContrast: string) {
+  const scopes=availableEnrichmentScopes(run,allowed)
+  const chosen=scopes.find(({result})=>result.id===currentResult)??scopes[0]
+  const contrasts=chosen?.contrasts??[]
+  return {scopes,contrasts,resultId:chosen?.result.id??'',
+    contrast:contrasts.includes(currentContrast)?currentContrast:contrasts[0]??''}
+}
 
 export function sequenceSetKey(source: string, sequenceSet: string): string {
   return `${source}\u0000${sequenceSet}`
@@ -10,6 +29,36 @@ export function sequenceSetsAtFdr(payload: GseaPayload, fdr: number): GseaSequen
   return payload.sequenceSets
     .filter((row) => Number.isFinite(row.fdr) && row.fdr < fdr)
     .sort((left, right) => left.fdr - right.fdr || Math.abs(right.nes) - Math.abs(left.nes))
+}
+
+/** A display choice is available only when the set contains a site in the effective filter result. */
+export function navigableSequenceSets(payload: GseaPayload, sites: ReadonlySet<string>): GseaSequenceSet[] {
+  const available=new Set(payload.memberships.filter(row=>sites.has(siteIdentity(row.protein_Id,row.site)))
+    .map(row=>sequenceSetKey(row.source,row.sequence_set)))
+  return payload.sequenceSets.filter(row=>available.has(sequenceSetKey(row.source,row.sequence_set)))
+    .sort((a,b)=>a.fdr-b.fdr || Math.abs(b.nes)-Math.abs(a.nes))
+}
+
+/** B determines the visible enrichment rows and highlights; one curve remains a display focus. */
+export function gseaSelectionView(payload: GseaPayload, fdr: number, selection: SetSelection,
+): {rows:GseaSequenceSet[]; highlighted:ReadonlySet<string>} {
+  const eligible=sequenceSetsAtFdr(payload,fdr)
+  const selected=selection.kind==='set'?[selection.id]
+    :selection.kind==='intersection'?selection.ids:[]
+  const selectedKeys=new Set(selected)
+  const rows=selected.length ? eligible.filter(row=>selectedKeys.has(sequenceSetKey(row.source,row.sequence_set)))
+    :eligible
+  const highlighted=new Set(selected.length?rows.map(row=>sequenceSetKey(row.source,row.sequence_set)):[])
+  return {rows,highlighted}
+}
+
+/** Upper curve choices are the B-filtered sequence sets that still meet the effective site selection. */
+export function gseaNavigationRows(payload: GseaPayload, fdr: number, selection: SetSelection,
+  sites: ReadonlySet<string>): GseaSequenceSet[] {
+  const eligible=new Set(gseaSelectionView(payload,fdr,selection).rows
+    .map(row=>sequenceSetKey(row.source,row.sequence_set)))
+  return navigableSequenceSets(payload,sites)
+    .filter(row=>eligible.has(sequenceSetKey(row.source,row.sequence_set)))
 }
 
 export function selectedSequenceSet(
@@ -59,10 +108,10 @@ function plotLayout(title: string, xTitle: string, yTitle: string): Record<strin
 export function buildGseaVolcanoFigure(
   payload: GseaPayload,
   fdr: number,
-  selectedKey: string,
+  highlightedKeys: ReadonlySet<string>,
 ): FigureSpec {
-  const selected = selectedSequenceSet(payload, selectedKey)
-  const regular = payload.sequenceSets.filter((row) => row !== selected)
+  const selected = payload.sequenceSets.filter(row=>highlightedKeys.has(sequenceSetKey(row.source,row.sequence_set)))
+  const regular = payload.sequenceSets.filter(row=>!highlightedKeys.has(sequenceSetKey(row.source,row.sequence_set)))
   const point = (row: GseaSequenceSet) => [
     sequenceSetKey(row.source, row.sequence_set), row.source, row.sequence_set,
     row.description, row.nes, row.fdr,
@@ -82,7 +131,7 @@ export function buildGseaVolcanoFigure(
     trace(other, 'Above GSEA FDR', '#aeb7c2', 7),
     trace(passing, 'Below GSEA FDR', '#356b9a', 8),
   ]
-  if (selected) data.push(trace([selected], 'Selected sequence set', '#ad3a2b', 12))
+  if (selected.length) data.push(trace(selected, 'B-selected sequence sets', '#ad3a2b', 12))
   const layout = plotLayout(
     `${payload.result.label} · ${payload.contrast}`,
     'Normalized enrichment score',

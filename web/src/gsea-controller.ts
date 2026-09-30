@@ -8,17 +8,20 @@ import {
   gseaSiteTableRows,
   type GseaSiteTableRow,
   buildGseaVolcanoFigure,
+  gseaSelectionView,
+  gseaNavigationRows,
   selectedSequenceSet,
   sequenceSetKey,
   sequenceSetsAtFdr,
+  availableEnrichmentScopes,
 } from './gsea.js'
 import {
   createGseaSiteTable,
   createGseaTable,
   gseaTableRows,
 } from './gsea-table.js'
-import { sequenceSets } from './filtering.js'
-import type { EnrichmentSets } from './filter-panel.js'
+import type { EnrichmentInput } from './filtering.js'
+import type { SetSelection } from './upset-model.js'
 import type { AppData, GseaPayload, RunManifest } from './types.js'
 
 type Status = (message: string, error?: boolean) => void
@@ -28,7 +31,9 @@ export class GseaController {
   private payload: GseaPayload | null = null
   private resultId = ''
   private contrast = ''
+  private allowedContrasts: readonly string[] = []
   private selectedKey = ''
+  private branchSelection: SetSelection = {kind:'off'}
   private fdr = 0.05
   private sequenceSearch = ''
   private leadingEdgeOnly = false
@@ -41,7 +46,8 @@ export class GseaController {
   private siteRows: GseaSiteTableRow[] = []
   private data: AppData | null = null
   private selectedSites: ReadonlySet<string> = new Set()
-  enrichment: EnrichmentSets = {sets:[],context:'',revision:0,status:'Loading enrichment…',ready:false}
+  enrichment: EnrichmentInput = {payload:null,fdr:0.05,leading:false,context:'',revision:0,
+    status:'Loading enrichment…',ready:false}
   private proteinSearch = ''
 
   constructor(
@@ -61,16 +67,18 @@ export class GseaController {
   async configure(
     data: AppData,
     contrast: string,
+    allowed: readonly string[],
   ): Promise<void> {
     this.data = data
     const run = data.run
     if (!run.gsea?.results.length) return
     this.run = run
+    this.allowedContrasts = [...allowed]
     this.contrast = contrast
-    const select = this.el<HTMLSelectElement>('#gsea-result')
-    select.replaceChildren(...run.gsea.results.map((result) => new Option(result.label, result.id)))
     this.resultId = run.gsea.results[0].id
-    select.value = this.resultId
+    this.syncScopeOptions()
+    this.syncSequenceOptions()
+    this.el('#gsea-navigation').hidden = false
     this.el('#gsea-controls').hidden = false
     this.el('#gsea-find-tab').hidden = false
     await this.load()
@@ -82,15 +90,35 @@ export class GseaController {
   }
 
   private publishSets(status = 'Ready', ready = this.payload !== null): void {
-    this.enrichment = {sets:this.payload?sequenceSets(this.payload,this.fdr,this.leadingEdgeOnly):[],
-      context:`${this.resultId}\u0000${this.contrast}`, revision:this.enrichment.revision+1, status, ready}
+    this.enrichment = {payload:this.payload,fdr:this.fdr,leading:this.leadingEdgeOnly,
+      context:`${this.resultId}\u0000${this.contrast}`,revision:this.enrichment.revision+1,status,ready}
     this.scopeChanged()
   }
 
-  async setContrast(contrast: string): Promise<void> {
-    if (!this.run || contrast === this.contrast) return
-    this.contrast = contrast
-    await this.load()
+  restrictContrasts(allowed: readonly string[], contrast: string): void {
+    if (!this.run || (contrast===this.contrast
+      && JSON.stringify(allowed)===JSON.stringify(this.allowedContrasts))) return
+    const previous=`${this.resultId}\u0000${this.contrast}`
+    this.allowedContrasts=[...allowed]
+    this.contrast=contrast
+    this.syncScopeOptions()
+    if (`${this.resultId}\u0000${this.contrast}`!==previous) void this.load()
+  }
+
+  private syncScopeOptions(): void {
+    if (!this.run) return
+    const scopes=availableEnrichmentScopes(this.run,this.allowedContrasts)
+      .filter(scope=>scope.contrasts.includes(this.contrast))
+    this.resultId=(scopes.find(({result})=>result.id===this.resultId)??scopes[0])?.result.id??''
+    const resultSelect=this.el<HTMLSelectElement>('#gsea-result')
+    const results=this.branchSelection.kind==='off'?scopes
+      :scopes.filter(({result})=>result.id===this.resultId)
+    resultSelect.replaceChildren(...results.map(({result})=>new Option(result.label,result.id)))
+    resultSelect.value=this.resultId
+    resultSelect.disabled=results.length<=1
+    resultSelect.title=this.branchSelection.kind==='off'
+      ? 'Choose the enrichment result B can use; no site filter changes while B is Off.'
+      : 'B is using this enrichment result. Turn B Off to choose another method.'
   }
 
   setVisible(visible: boolean): void {
@@ -106,12 +134,28 @@ export class GseaController {
     if (this.selectedSites === keys && this.proteinSearch === search) return
     this.selectedSites = keys
     this.proteinSearch = search
+    this.syncSequenceOptions()
+    this.refreshSiteTable()
+    if (this.visible) void this.renderPlots()
+  }
+
+  setBranchSelection(selection: SetSelection): void {
+    if (JSON.stringify(this.branchSelection)===JSON.stringify(selection)) return
+    this.branchSelection=selection
+    this.syncScopeOptions()
+    this.syncSequenceOptions()
+    this.refreshTable()
     this.refreshSiteTable()
     if (this.visible) void this.renderPlots()
   }
 
   changeResult(event: Event): void {
+    if (this.branchSelection.kind!=='off') {
+      this.syncScopeOptions()
+      return
+    }
     this.resultId = (event.target as HTMLSelectElement).value
+    this.syncScopeOptions()
     void this.load()
   }
 
@@ -122,7 +166,8 @@ export class GseaController {
       return
     }
     this.fdr = value
-    this.syncSequenceSet()
+    this.syncSequenceOptions()
+    this.searchSequenceSets()
     this.refreshTable()
     this.refreshSiteTable()
     void this.renderPlots()
@@ -132,15 +177,16 @@ export class GseaController {
   searchSequenceSets(): void {
     this.sequenceSearch = this.el<HTMLInputElement>('#sequence-set-search').value
       .trim().toLocaleLowerCase()
-    if (this.syncSequenceSetOptions(undefined,true)) {
-      this.syncSelectedRow()
-      this.refreshSiteTable()
-      void this.renderPlots()
+    const available=this.payload?sequenceSetsAtFdr(this.payload,this.fdr):[]
+    const matching=this.sequenceSearch?available.filter(row=>[row.sequence_set,row.description,row.source]
+      .some(value=>value.toLocaleLowerCase().includes(this.sequenceSearch))):available
+    const keys=new Set(matching.map(row=>sequenceSetKey(row.source,row.sequence_set)))
+    this.findSets(this.sequenceSearch?keys:null)
+    if (this.sequenceSearch && this.payload && !keys.has(this.selectedKey)) {
+      const first=gseaSelectionView(this.payload,this.fdr,this.branchSelection).rows
+        .find(row=>keys.has(sequenceSetKey(row.source,row.sequence_set)))
+      if (first) this.selectSequenceSet(sequenceSetKey(first.source,first.sequence_set))
     }
-  }
-
-  changeSequenceSet(event: Event): void {
-    this.selectSequenceSet((event.target as HTMLSelectElement).value)
   }
 
   changeLeadingEdge(): void {
@@ -149,78 +195,65 @@ export class GseaController {
     this.publishSets()
   }
 
+  changeSequenceSet(event: Event): void {
+    this.selectSequenceSet((event.target as HTMLSelectElement).value)
+  }
+
+  private syncSequenceOptions(): void {
+    const select=this.el<HTMLSelectElement>('#sequence-set')
+    const rows=this.payload?gseaNavigationRows(this.payload,this.fdr,this.branchSelection,this.selectedSites):[]
+    const keys=new Set(rows.map(row=>sequenceSetKey(row.source,row.sequence_set)))
+    if (!keys.has(this.selectedKey)) this.selectedKey=rows.length
+      ? sequenceSetKey(rows[0].source,rows[0].sequence_set):''
+    select.replaceChildren(...rows.map(row=>new Option(`${row.sequence_set} · ${row.source}`,
+      sequenceSetKey(row.source,row.sequence_set))))
+    select.value=this.selectedKey
+    select.disabled=rows.length===0
+  }
+
   private async load(): Promise<void> {
     if (!this.run) return
     const id = ++this.loadId
     this.payload = null
-    this.syncSequenceSetOptions([])
+    this.syncSequenceOptions()
+    this.searchSequenceSets()
     this.refreshTable()
+    if (!this.resultId || !this.contrast) {
+      this.publishSets('No enrichment result for the displayed A-permitted contrast.',false)
+      this.setStatus('No enrichment result for A-selected contrasts.')
+      return
+    }
     this.publishSets('Loading enrichment…', false)
     this.setStatus(`Loading ${this.resultId} for ${this.contrast}…`)
     try {
       const payload = await loadGseaPayload(this.run, this.resultId, this.contrast)
       if (id !== this.loadId) return
       this.payload = payload
-      this.syncSequenceSet()
+      this.syncSequenceOptions()
+      this.searchSequenceSets()
       this.refreshTable()
       this.refreshSiteTable()
       this.publishSets(payload ? 'Ready' : 'No enrichment result for this contrast.', payload !== null)
       this.setStatus(payload ? 'Ready · local prepared GSEA data' : 'No GSEA result for this contrast.')
+      if (this.visible) void this.renderPlots()
     } catch (error) {
       if (id !== this.loadId) return
       this.payload = null
       this.selectedKey = ''
-      this.syncSequenceSetOptions([])
+      this.syncSequenceOptions()
       this.refreshTable()
       this.refreshSiteTable()
       this.publishSets(error instanceof Error ? error.message : String(error), false)
       this.setStatus(error instanceof Error ? error.message : String(error), true)
+      if (this.visible) void this.renderPlots()
     }
-  }
-
-  private syncSequenceSet(): boolean {
-    const previous = this.selectedKey
-    const options = this.payload ? sequenceSetsAtFdr(this.payload, this.fdr) : []
-    if (!options.some((row) => sequenceSetKey(row.source, row.sequence_set) === previous)) {
-      this.selectedKey = options.length
-        ? sequenceSetKey(options[0].source, options[0].sequence_set)
-        : ''
-    }
-    this.syncSequenceSetOptions(options,true)
-    return previous !== this.selectedKey
-  }
-
-  private syncSequenceSetOptions(
-    available = this.payload ? sequenceSetsAtFdr(this.payload, this.fdr) : [],
-    focusMatch = false,
-  ): boolean {
-    const previous=this.selectedKey
-    const matching = this.sequenceSearch
-      ? available.filter((row) => [row.sequence_set, row.description, row.source]
-        .some((value) => value.toLocaleLowerCase().includes(this.sequenceSearch)))
-      : available
-    const matchingKeys=new Set(matching.map(row=>sequenceSetKey(row.source,row.sequence_set)))
-    this.findSets(this.sequenceSearch?matchingKeys:null)
-    if (focusMatch && this.sequenceSearch && matching.length && !matchingKeys.has(this.selectedKey)) {
-      this.selectedKey=sequenceSetKey(matching[0].source,matching[0].sequence_set)
-    }
-    const selected = available.find(
-      (row) => sequenceSetKey(row.source, row.sequence_set) === this.selectedKey,
-    )
-    const options = selected && !matching.includes(selected) ? [selected, ...matching] : matching
-    const select = this.el<HTMLSelectElement>('#sequence-set')
-    select.replaceChildren(...options.map((row) => new Option(
-      `${row.sequence_set} · ${row.source}`,
-      sequenceSetKey(row.source, row.sequence_set),
-    )))
-    select.value = this.selectedKey
-    return previous!==this.selectedKey
   }
 
   selectSequenceSet(key: string): void {
-    if (!this.payload || !selectedSequenceSet(this.payload, key)) return
+    if (!this.payload || !gseaNavigationRows(this.payload,this.fdr,this.branchSelection,this.selectedSites)
+      .some(row=>sequenceSetKey(row.source,row.sequence_set)===key)) return
     this.selectedKey = key
-    this.syncSequenceSetOptions()
+    this.syncSequenceOptions()
     this.syncSelectedRow()
     this.refreshSiteTable()
     void this.renderPlots()
@@ -228,10 +261,13 @@ export class GseaController {
 
   private refreshTable(): void {
     if (!this.visible) return
-    const sequenceSets = this.payload ? sequenceSetsAtFdr(this.payload, this.fdr) : []
-    const rows = gseaTableRows(sequenceSets)
+    const view=this.payload?gseaSelectionView(this.payload,this.fdr,this.branchSelection):null
+    const rows = gseaTableRows(view?.rows??[])
+    const eligible=this.payload?sequenceSetsAtFdr(this.payload,this.fdr).length:0
     const count = this.payload?.sequenceSets.length ?? 0
-    this.el('#gsea-result-count').textContent = `${rows.length.toLocaleString()} / ${count.toLocaleString()} below FDR`
+    this.el('#gsea-result-count').textContent = view?.highlighted.size
+      ? `${rows.length.toLocaleString()} selected · ${eligible.toLocaleString()} / ${count.toLocaleString()} below FDR`
+      : `${eligible.toLocaleString()} / ${count.toLocaleString()} below FDR`
     if (!this.table) {
       this.table = createGseaTable(
         this.el('#gsea-table'), rows, (key) => this.selectSequenceSet(key),
@@ -307,9 +343,10 @@ export class GseaController {
       return
     }
     const payload = this.payload
+    const view=gseaSelectionView(payload,this.fdr,this.branchSelection)
     await renderFigure(
       this.el<HTMLDivElement>('#gsea-volcano'),
-      buildGseaVolcanoFigure(payload, this.fdr, this.selectedKey),
+      buildGseaVolcanoFigure(payload, this.fdr, view.highlighted),
       undefined,
       'gl2d',
       (customdata) => {

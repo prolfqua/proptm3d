@@ -19,6 +19,7 @@ import type {
 } from "./types.js";
 import { servedUrl } from "./served-url.js";
 import { siteStructure, UNAVAILABLE_STRUCTURE } from "./structural.js";
+import { siteIdentity } from "./membership.js";
 
 export type ParquetTableKey = keyof RunManifest["files"];
 
@@ -89,10 +90,6 @@ async function getFile(path: string, baseUrl: string): Promise<Response> {
     throw new Error(`Could not load ${url.pathname}: HTTP ${response.status}`);
   }
   return response;
-}
-
-function siteKey(proteinId: string, site: string): string {
-  return `${proteinId}\u0000${site}`;
 }
 
 function numberOrNull(value: number | bigint | null): number | null {
@@ -188,25 +185,25 @@ export async function loadAppData(baseUrl = document.baseURI): Promise<AppData> 
     loadParquetTable<ParquetContext>(run, "site_structural_context_parquet", baseUrl),
   ]);
   const structureBySite = new Map(context.map((row) =>
-    [siteKey(row.protein_Id, row.site), siteStructure(normalizeContext(row))]));
+    [siteIdentity(row.protein_Id, row.site), siteStructure(normalizeContext(row))]));
   const structureCounts = new Map<string, number>();
   for (const row of structures) {
     structureCounts.set(row.protein_Id, (structureCounts.get(row.protein_Id) ?? 0) + 1);
   }
   const proteins = proteinRows.map((row) => normalizeProtein(row, structureCounts.get(row.protein_Id) ?? 0));
-  const siteMetadata = new Map(sites.map((site) => [siteKey(site.protein_Id, site.site), site]));
+  const siteMetadata = new Map(sites.map((site) => [siteIdentity(site.protein_Id, site.site), site]));
   const siteIndex: SiteIndexRow[] = stats.map((row) => {
-    const site = siteMetadata.get(siteKey(row.protein_Id, row.site));
+    const site = siteMetadata.get(siteIdentity(row.protein_Id, row.site));
     if (!site) {
       throw new Error(`No measured-site metadata for ${row.protein_Id} / ${row.site}.`);
     }
     return {
       ...normalizeResult(row), accession: site.accession, has_measurement: site.has_measurement,
-      structure: structureBySite.get(siteKey(row.protein_Id, row.site)) ?? UNAVAILABLE_STRUCTURE,
+      structure: structureBySite.get(siteIdentity(row.protein_Id, row.site)) ?? UNAVAILABLE_STRUCTURE,
     };
   });
   return { run, proteins, siteIndex, sites: sites.map(site => ({ ...normalizeSite(site),
-    structure: structureBySite.get(siteKey(site.protein_Id, site.site)) ?? UNAVAILABLE_STRUCTURE,
+    structure: structureBySite.get(siteIdentity(site.protein_Id, site.site)) ?? UNAVAILABLE_STRUCTURE,
   })) };
 }
 
