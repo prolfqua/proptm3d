@@ -115,6 +115,8 @@ test("v2 browser data comes entirely from Parquet and preserves nulls", async ()
     assert.equal(data.proteins.length, 1);
     assert.equal(data.proteins[0].structure_count, 1);
     assert.equal(data.siteIndex.length, 1);
+    assert.equal(data.sites.length, 1);
+    assert.equal(data.sites[0].structure.exposure, "exposed");
     assert.equal(data.siteIndex[0].posInProtein, 10);
     assert.equal(data.siteIndex[0].effect, 2);
     assert.equal(data.siteIndex[0].fdr, 0.01);
@@ -148,6 +150,27 @@ test("v2 browser data comes entirely from Parquet and preserves nulls", async ()
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("stats-only DPA, DPU and CF-DPU keep measured sites even with an empty result index", async () => {
+  const empty = Buffer.from('UEFSMRUCGSxIBHJvb3QVAgAVDCUCGApwcm90ZWluX0lkJQBMHAAAABYAGQwZHBgMQVJST1c6c2NoZW1hGKQBLy8vLy8zTUFBQUFFQUFBQTh2Ly8veFFBQUFBRUFBRUFBQUFLQUFzQUNBQUtBQVFBK1AvLy93d0FBQUFJQUFnQUFBQUVBQUVBQUFBRUFBQUE3UC8vL3l3QUFBQWdBQUFBR0FBQUFBRVVBQUFRQUJJQUJBQVFBQkVBQ0FBQUFBd0FBQUFBQVB6Ly8vOEVBQVFBQ2dBQUFIQnliM1JsYVc1ZlNXUUEAGAZQb2xhcnMZHBwAAADuAAAAUEFSMQ==', 'base64');
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const method of ['DPA','DPU','CF-DPU'] as const) {
+      globalThis.fetch = (async (input: RequestInfo | URL) => {
+        const url = new URL(input.toString());
+        if (url.pathname.endsWith('/data/run.json')) return new Response(JSON.stringify({...run,method}));
+        const bytes = url.pathname.endsWith('/site_stats.parquet') ? empty : parquetFixture;
+        return new Response(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength) as ArrayBuffer);
+      }) as typeof fetch;
+      const data = await loadAppData(`https://fixture.proptm3d.test/empty-${method}/`);
+      assert.equal(data.siteIndex.length,0);
+      assert.equal(data.sites.length,1);
+      assert.equal(data.sites[0].has_measurement,true);
+      assert.equal(data.sites[0].posInProtein,10);
+      assert.equal(data.run.gsea,undefined);
+    }
+  } finally { globalThis.fetch=originalFetch; }
 });
 
 test("an external Parquet path is rejected before fetch", async () => {

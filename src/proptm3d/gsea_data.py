@@ -57,6 +57,13 @@ _CURVE_SCHEMA = {
     "hit_indices": pl.List(pl.Int64),
     "hit_scores": pl.List(pl.Float64),
 }
+_RANK_SCHEMA = {
+    "analysis": pl.String,
+    "contrast": pl.String,
+    "result_stage": pl.String,
+    "sequence_window": pl.String,
+    "rank": pl.Int64,
+}
 _TERM_FIELDS = set(_TERM_SCHEMA) - {
     "analysis",
     "contrast",
@@ -86,6 +93,7 @@ class GseaTables:
 
     terms: pl.DataFrame
     curves: pl.DataFrame
+    ranks: pl.DataFrame
     documents: list[dict]
 
 
@@ -132,8 +140,9 @@ def artifact_key(method: str, artifact: GseaArtifact) -> str:
 
 def _document_rows(  # noqa: C901
     stream: BinaryIO, analysis: str, result_stage: str
-) -> Iterator[tuple[list[dict], list[dict]]]:
+) -> Iterator[tuple[list[dict], list[dict], list[dict]]]:
     terms = []
+    ranks = []
     curves: dict[tuple[str, str, str], dict] = {}
     contrast = ""
     source = ""
@@ -144,11 +153,23 @@ def _document_rows(  # noqa: C901
     for prefix, event, value in ijson.parse(stream, use_float=True):
         if prefix == "data" and event == "map_key":
             if contrast:
-                yield terms, list(curves.values())
+                yield terms, list(curves.values()), ranks
                 terms = []
+                ranks = []
                 curves = {}
             contrast = value
             source = ""
+        elif prefix.startswith(f"data.{contrast}.gene_pool.") and prefix.endswith(".rank"):
+            if event == "number":
+                ranks.append(
+                    {
+                        "analysis": analysis,
+                        "contrast": contrast,
+                        "result_stage": result_stage,
+                        "sequence_window": prefix[len(f"data.{contrast}.gene_pool.") : -5].upper(),
+                        "rank": value,
+                    }
+                )
         elif prefix.endswith(".categories") and event == "map_key":
             source = value
         elif prefix.endswith(".terms.item") and event == "start_map":
@@ -194,7 +215,7 @@ def _document_rows(  # noqa: C901
             )
             row[curve_field].append(value)
     if contrast:
-        yield terms, list(curves.values())
+        yield terms, list(curves.values()), ranks
 
 
 def artifact_sha256(artifact: GseaArtifact) -> str:
@@ -208,6 +229,9 @@ def artifact_sha256(artifact: GseaArtifact) -> str:
 
 def _compact_curve(row: dict, max_points: int = 2000) -> dict:
     scores = row["running_scores"]
+    if any(rank < 1 or rank > len(scores) for rank in row["hit_indices"]):
+        msg = "GSEA hit ranks must be one-based positions within running_scores"
+        raise ValueError(msg)
     if len(scores) <= max_points:
         indices = list(range(len(scores)))
     else:
@@ -222,15 +246,13 @@ def _compact_curve(row: dict, max_points: int = 2000) -> dict:
         )
     return {
         **row,
-        "rank_indices": indices,
+        "rank_indices": [index + 1 for index in indices],
         "running_scores": [scores[index] for index in indices],
-        "hit_scores": [
-            scores[index] if index < len(scores) else 0.0 for index in row["hit_indices"]
-        ],
+        "hit_scores": [scores[rank - 1] for rank in row["hit_indices"]],
     }
 
 
-def _frames(term_rows: list[dict], curve_rows: list[dict]) -> GseaTables:
+def _frames(term_rows: list[dict], curve_rows: list[dict], rank_rows: list[dict]) -> GseaTables:
     terms = (
         pl.DataFrame(term_rows, schema=_TERM_SCHEMA)
         if term_rows
@@ -241,7 +263,7 @@ def _frames(term_rows: list[dict], curve_rows: list[dict]) -> GseaTables:
         if curve_rows
         else pl.DataFrame(schema=_CURVE_SCHEMA)
     )
-    return GseaTables(terms, curves, [])
+    return GseaTables(terms, curves, pl.DataFrame(rank_rows, schema=_RANK_SCHEMA), [])
 
 
 def iter_gsea_tables(source: GseaInput, method: str) -> Iterator[GseaTables]:
@@ -255,9 +277,9 @@ def iter_gsea_tables(source: GseaInput, method: str) -> Iterator[GseaTables]:
         stage = RESULT_STAGES[artifact.name]
         term_count = 0
         with artifact.open_stream() as compressed, gzip.GzipFile(fileobj=compressed) as stream:
-            for term_rows, curve_rows in _document_rows(stream, method, stage):
+            for term_rows, curve_rows, rank_rows in _document_rows(stream, method, stage):
                 term_count += len(term_rows)
-                yield _frames(term_rows, curve_rows)
+                yield _frames(term_rows, curve_rows, rank_rows)
         source.documents.append(
             {
                 "file": artifact.filename,
@@ -287,4 +309,9 @@ def read_gsea_tables(
         if chunks
         else pl.DataFrame(schema=_CURVE_SCHEMA)
     )
-    return GseaTables(terms, curves, source.documents)
+    ranks = (
+        pl.concat([chunk.ranks for chunk in chunks])
+        if chunks
+        else pl.DataFrame(schema=_RANK_SCHEMA)
+    )
+    return GseaTables(terms, curves, ranks, source.documents)

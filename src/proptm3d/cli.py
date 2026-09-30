@@ -295,20 +295,41 @@ def clean(folder: Path) -> None:
     print(f"Removed {removed}")
 
 
+class ServeError(ValueError):
+    """Invalid local-serving request that should be displayed without a traceback."""
+
+
 @app.command
 def serve(
-    target: str,
-    folder: Path | None = None,
+    target: Annotated[
+        str,
+        Parameter(
+            help="Prepared root folder or bundle ZIP; with FOLDER, a method: DPA, DPU, or CF-DPU."
+        ),
+    ],
+    folder: Annotated[
+        Path | None,
+        Parameter(
+            help="Prepared root containing index.html and DPA/, DPU/, CF-DPU/; use after a method."
+        ),
+    ] = None,
     *,
-    port: int = 8000,
+    port: Annotated[
+        int,
+        Parameter(help="Local port; replaces a verified proptm3d server, never another service."),
+    ] = 8000,
 ) -> None:
-    """Serve all methods in a prepared root, one METHOD FOLDER, or a bundle ZIP."""
+    """Serve a prepared root, one method from that root, or a bundle ZIP.
+
+    GSEA is prepared data inside DPA, DPU and CF-DPU, not a serve method.
+    Examples: serve PREPARED_ROOT; serve DPA PREPARED_ROOT; serve BUNDLE.zip.
+    """
     if folder is None:
         path = Path(target)
         if path.is_dir():
             if path.is_symlink():
                 msg = f"Refusing to serve a symlinked prepared folder: {path}"
-                raise ValueError(msg)
+                raise ServeError(msg)
             methods = prepared_root.available_methods(path)
             entries = {entry.name for entry in path.iterdir()}
             index = path / "index.html"
@@ -320,26 +341,32 @@ def serve(
                 or any((path / method).is_symlink() for method in methods)
             ):
                 msg = f"Not a prepared output folder: {path}"
-                raise ValueError(msg)
+                raise ServeError(msg)
             webapp.serve(path.resolve(), port=port)
             return
         if path.suffix.lower() != ".zip":
-            msg = "Pass a prepared FOLDER, METHOD FOLDER, or a proptm3d bundle.zip to serve"
-            raise ValueError(msg)
+            msg = (
+                "Pass PREPARED_ROOT or BUNDLE.zip; for one method use METHOD PREPARED_ROOT "
+                "(METHOD = DPA, DPU, CF-DPU)"
+            )
+            raise ServeError(msg)
         with bundling.extracted_bundle(path) as directory:
             webapp.serve(directory, port=port)
         return
     if target not in preparation.METHOD_SPECS:
-        msg = f"Unknown method: {target}"
-        raise ValueError(msg)
+        msg = (
+            f"Unknown method: {target}; choose DPA, DPU, or CF-DPU. "
+            "GSEA is prepared data, not a serve method"
+        )
+        raise ServeError(msg)
     selected = folder / target
     if folder.is_symlink() or selected.is_symlink():
         msg = f"Refusing to serve a symlinked prepared folder: {selected}"
-        raise ValueError(msg)
+        raise ServeError(msg)
     directory = selected.resolve()
     if not preparation.is_prepared(directory, target):
         msg = f"No prepared {target} directory at {directory}"
-        raise ValueError(msg)
+        raise ServeError(msg)
     webapp.serve(directory, port=port)
 
 
@@ -462,7 +489,11 @@ def upload(
 
 def main() -> None:
     """Entry point for the proptm3d console script."""
-    app()
+    try:
+        app()
+    except (ServeError, webapp.PortInUseError) as error:
+        print(f"Error: {error}", file=sys.stderr)
+        raise SystemExit(1) from None
 
 
 if __name__ == "__main__":

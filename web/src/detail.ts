@@ -1,4 +1,4 @@
-import { passesStructuralFilters, siteStructure, UNAVAILABLE_STRUCTURE, type StructuralFilters } from './structural.js'
+import { siteStructure, UNAVAILABLE_STRUCTURE } from './structural.js'
 import { isSignificant } from './summary.js'
 import type { MeasuredSite, ProteinDetail, SiteResult, SiteStructure, Thresholds } from './types.js'
 
@@ -69,19 +69,4 @@ export function buildDetailRows(detail: ProteinDetail, contrast: string, thresho
     rows.push(rowFrom(undefined, result, contrast, thresholds, structureOf(result.site)))
   }
   return rows
-}
-
-/** Select the sites shared by the detail table, structure, N-to-C plot, and abundance picker. */
-export function selectDetailRows(
-  detail: ProteinDetail,
-  contrast: string,
-  thresholds: Thresholds,
-  estimateType: EstimateType,
-  showAll: boolean,
-  structural: StructuralFilters,
-): DetailRow[] {
-  return buildDetailRows(detail, contrast, thresholds).filter((row) =>
-    (showAll || row.passes_cutoff) && (estimateType === 'all' || row.estimate_status === estimateType)
-    && passesStructuralFilters(row.structure, structural),
-  )
 }

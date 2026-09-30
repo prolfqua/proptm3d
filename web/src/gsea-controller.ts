@@ -1,25 +1,25 @@
+import { replaceTableRows } from './table-data.js'
 import type { TabulatorFull } from 'tabulator-tables'
 
 import { renderFigure } from './charts.js'
 import { loadGseaPayload } from './data.js'
 import {
   buildEnrichmentFigure,
+  gseaSiteTableRows,
+  type GseaSiteTableRow,
   buildGseaVolcanoFigure,
-  filterSitesByGsea,
-  gseaSiteKeys,
   selectedSequenceSet,
   sequenceSetKey,
   sequenceSetsAtFdr,
-  type SiteIdentity,
 } from './gsea.js'
 import {
   createGseaSiteTable,
   createGseaTable,
-  gseaSiteTableRows,
   gseaTableRows,
-  type GseaSiteTableRow,
 } from './gsea-table.js'
-import type { GseaPayload, ProteinCatalogRow, RunManifest } from './types.js'
+import { sequenceSets } from './filtering.js'
+import type { EnrichmentSets } from './filter-panel.js'
+import type { AppData, GseaPayload, RunManifest } from './types.js'
 
 type Status = (message: string, error?: boolean) => void
 
@@ -31,19 +31,23 @@ export class GseaController {
   private selectedKey = ''
   private fdr = 0.05
   private sequenceSearch = ''
-  private filterEnabled = false
   private leadingEdgeOnly = false
   private loadId = 0
   private visible = false
+  private rendering = false
+  private renderPending = false
   private table: TabulatorFull | null = null
   private siteTable: TabulatorFull | null = null
   private siteRows: GseaSiteTableRow[] = []
-  private proteins: readonly ProteinCatalogRow[] = []
+  private data: AppData | null = null
+  private selectedSites: ReadonlySet<string> = new Set()
+  enrichment: EnrichmentSets = {sets:[],context:'',revision:0,status:'Loading enrichment…',ready:false}
   private proteinSearch = ''
 
   constructor(
     private readonly root: HTMLElement,
     private readonly scopeChanged: () => void,
+    private readonly findSets: (matches: ReadonlySet<string> | null) => void,
     private readonly setStatus: Status,
     private readonly openSite: (proteinId: string, site: string, contrast: string) => void,
   ) {}
@@ -55,13 +59,13 @@ export class GseaController {
   }
 
   async configure(
-    run: RunManifest,
+    data: AppData,
     contrast: string,
-    proteins: readonly ProteinCatalogRow[],
   ): Promise<void> {
+    this.data = data
+    const run = data.run
     if (!run.gsea?.results.length) return
     this.run = run
-    this.proteins = proteins
     this.contrast = contrast
     const select = this.el<HTMLSelectElement>('#gsea-result')
     select.replaceChildren(...run.gsea.results.map((result) => new Option(result.label, result.id)))
@@ -77,20 +81,10 @@ export class GseaController {
     this.siteTable?.destroy()
   }
 
-  get filterKey(): string {
-    return this.filterEnabled
-      ? [this.resultId, this.contrast, this.selectedKey, this.leadingEdgeOnly].join('\u0000')
-      : ''
-  }
-
-  get isFiltering(): boolean {
-    return this.filterEnabled
-  }
-
-  filterSites<T extends SiteIdentity>(rows: readonly T[]): T[] {
-    if (!this.filterEnabled) return [...rows]
-    if (!this.payload || !this.selectedKey) return [...rows]
-    return filterSitesByGsea(rows, this.payload, this.selectedKey, this.leadingEdgeOnly)
+  private publishSets(status = 'Ready', ready = this.payload !== null): void {
+    this.enrichment = {sets:this.payload?sequenceSets(this.payload,this.fdr,this.leadingEdgeOnly):[],
+      context:`${this.resultId}\u0000${this.contrast}`, revision:this.enrichment.revision+1, status, ready}
+    this.scopeChanged()
   }
 
   async setContrast(contrast: string): Promise<void> {
@@ -102,16 +96,18 @@ export class GseaController {
   setVisible(visible: boolean): void {
     this.visible = visible
     if (visible) {
-      this.table?.redraw(true)
-      this.siteTable?.redraw(true)
+      this.refreshTable()
+      this.refreshSiteTable()
       void this.renderPlots()
     }
   }
 
-  setSiteSearch(search: string): void {
-    if (search === this.proteinSearch) return
+  setSelection(keys: ReadonlySet<string>, search: string): void {
+    if (this.selectedSites === keys && this.proteinSearch === search) return
+    this.selectedSites = keys
     this.proteinSearch = search
     this.refreshSiteTable()
+    if (this.visible) void this.renderPlots()
   }
 
   changeResult(event: Event): void {
@@ -126,18 +122,21 @@ export class GseaController {
       return
     }
     this.fdr = value
-    const wasFiltering = this.filterEnabled
-    const changed = this.syncSequenceSet()
+    this.syncSequenceSet()
     this.refreshTable()
     this.refreshSiteTable()
     void this.renderPlots()
-    if (changed && (wasFiltering || this.filterEnabled)) this.scopeChanged()
+    this.publishSets()
   }
 
   searchSequenceSets(): void {
     this.sequenceSearch = this.el<HTMLInputElement>('#sequence-set-search').value
       .trim().toLocaleLowerCase()
-    this.syncSequenceSetOptions()
+    if (this.syncSequenceSetOptions(undefined,true)) {
+      this.syncSelectedRow()
+      this.refreshSiteTable()
+      void this.renderPlots()
+    }
   }
 
   changeSequenceSet(event: Event): void {
@@ -147,23 +146,16 @@ export class GseaController {
   changeLeadingEdge(): void {
     this.leadingEdgeOnly = this.el<HTMLInputElement>('#leading-edge-only').checked
     this.refreshSiteTable()
-    this.syncFilterControl()
-    if (this.filterEnabled) this.scopeChanged()
-  }
-
-  toggleFilter(): void {
-    if (!this.payload || !this.selectedKey) return
-    this.filterEnabled = !this.filterEnabled
-    this.syncFilterControl()
-    this.scopeChanged()
+    this.publishSets()
   }
 
   private async load(): Promise<void> {
     if (!this.run) return
     const id = ++this.loadId
-    const wasFiltering = this.filterEnabled
     this.payload = null
-    if (wasFiltering) this.scopeChanged()
+    this.syncSequenceSetOptions([])
+    this.refreshTable()
+    this.publishSets('Loading enrichment…', false)
     this.setStatus(`Loading ${this.resultId} for ${this.contrast}…`)
     try {
       const payload = await loadGseaPayload(this.run, this.resultId, this.contrast)
@@ -172,18 +164,16 @@ export class GseaController {
       this.syncSequenceSet()
       this.refreshTable()
       this.refreshSiteTable()
-      this.syncFilterControl()
-      if (this.visible) await this.renderPlots()
-      if (wasFiltering || this.filterEnabled) this.scopeChanged()
+      this.publishSets(payload ? 'Ready' : 'No enrichment result for this contrast.', payload !== null)
       this.setStatus(payload ? 'Ready · local prepared GSEA data' : 'No GSEA result for this contrast.')
     } catch (error) {
       if (id !== this.loadId) return
+      this.payload = null
       this.selectedKey = ''
-      this.filterEnabled = false
       this.syncSequenceSetOptions([])
+      this.refreshTable()
       this.refreshSiteTable()
-      this.syncFilterControl()
-      if (wasFiltering) this.scopeChanged()
+      this.publishSets(error instanceof Error ? error.message : String(error), false)
       this.setStatus(error instanceof Error ? error.message : String(error), true)
     }
   }
@@ -196,18 +186,24 @@ export class GseaController {
         ? sequenceSetKey(options[0].source, options[0].sequence_set)
         : ''
     }
-    if (!this.selectedKey) this.filterEnabled = false
-    this.syncSequenceSetOptions(options)
+    this.syncSequenceSetOptions(options,true)
     return previous !== this.selectedKey
   }
 
   private syncSequenceSetOptions(
     available = this.payload ? sequenceSetsAtFdr(this.payload, this.fdr) : [],
-  ): void {
+    focusMatch = false,
+  ): boolean {
+    const previous=this.selectedKey
     const matching = this.sequenceSearch
       ? available.filter((row) => [row.sequence_set, row.description, row.source]
         .some((value) => value.toLocaleLowerCase().includes(this.sequenceSearch)))
       : available
+    const matchingKeys=new Set(matching.map(row=>sequenceSetKey(row.source,row.sequence_set)))
+    this.findSets(this.sequenceSearch?matchingKeys:null)
+    if (focusMatch && this.sequenceSearch && matching.length && !matchingKeys.has(this.selectedKey)) {
+      this.selectedKey=sequenceSetKey(matching[0].source,matching[0].sequence_set)
+    }
     const selected = available.find(
       (row) => sequenceSetKey(row.source, row.sequence_set) === this.selectedKey,
     )
@@ -218,21 +214,20 @@ export class GseaController {
       sequenceSetKey(row.source, row.sequence_set),
     )))
     select.value = this.selectedKey
+    return previous!==this.selectedKey
   }
 
-  private selectSequenceSet(key: string): void {
+  selectSequenceSet(key: string): void {
     if (!this.payload || !selectedSequenceSet(this.payload, key)) return
-    const changed = key !== this.selectedKey
     this.selectedKey = key
-    this.el<HTMLSelectElement>('#sequence-set').value = key
+    this.syncSequenceSetOptions()
     this.syncSelectedRow()
     this.refreshSiteTable()
-    this.syncFilterControl()
     void this.renderPlots()
-    if (changed && this.filterEnabled) this.scopeChanged()
   }
 
   private refreshTable(): void {
+    if (!this.visible) return
     const sequenceSets = this.payload ? sequenceSetsAtFdr(this.payload, this.fdr) : []
     const rows = gseaTableRows(sequenceSets)
     const count = this.payload?.sequenceSets.length ?? 0
@@ -242,7 +237,7 @@ export class GseaController {
         this.el('#gsea-table'), rows, (key) => this.selectSequenceSet(key),
       )
     } else {
-      void this.table.replaceData(rows).then(() => this.syncSelectedRow())
+      void replaceTableRows(this.table,rows).then(() => this.syncSelectedRow())
     }
   }
 
@@ -253,18 +248,15 @@ export class GseaController {
   }
 
   private refreshSiteTable(): void {
-    this.siteRows = this.payload ? gseaSiteTableRows(
-      this.payload,
-      this.selectedKey,
-      this.leadingEdgeOnly,
-      this.proteins,
-      this.proteinSearch,
+    if (!this.visible) return
+    this.siteRows = this.data ? gseaSiteTableRows(
+      this.payload, this.selectedKey, this.data, this.contrast, this.selectedSites, this.proteinSearch,
     ) : []
     const selected = this.payload ? selectedSequenceSet(this.payload, this.selectedKey) : null
     this.el('#gsea-site-summary').textContent = selected
-      ? `${this.siteRows.length.toLocaleString()} ${this.leadingEdgeOnly ? 'leading-edge ' : ''}sites`
+      ? `${this.selectedSites.size.toLocaleString()} selected sites`
         + ` · set NES ${selected.nes.toFixed(3)} · click a curve hit to select`
-      : 'Choose a sequence set'
+      : `${this.selectedSites.size.toLocaleString()} selected sites · choose a sequence set to inspect its curve`
     if (!this.siteTable) {
       this.siteTable = createGseaSiteTable(
         this.el('#gsea-site-table'),
@@ -272,7 +264,7 @@ export class GseaController {
         (row) => this.openSite(row.protein_Id, row.site, this.contrast),
       )
     } else {
-      void this.siteTable.replaceData(this.siteRows)
+      void replaceTableRows(this.siteTable,this.siteRows)
     }
   }
 
@@ -291,25 +283,33 @@ export class GseaController {
       + ` selected at rank ${String(rank)} · click a row to inspect`
   }
 
-  private syncFilterControl(): void {
-    const button = this.el<HTMLButtonElement>('#gsea-filter-enabled')
-    button.classList.toggle('is-active', this.filterEnabled)
-    button.disabled = !this.payload || !this.selectedKey
-    this.el('#gsea-filter-state').textContent = this.filterEnabled ? 'On' : 'Off'
-    const selected = this.payload ? selectedSequenceSet(this.payload, this.selectedKey) : null
-    const count = this.payload && selected
-      ? gseaSiteKeys(this.payload, this.selectedKey, this.leadingEdgeOnly).size
-      : 0
-    this.el('#gsea-filter-label').textContent = selected
-      ? `${count.toLocaleString()} ${this.leadingEdgeOnly ? 'leading-edge ' : ''}sites`
-      : 'Apply sequence set'
+  private async renderPlots(): Promise<void> {
+    this.renderPending = true
+    if (this.rendering) return
+    this.rendering = true
+    try {
+      while (this.renderPending) {
+        this.renderPending = false
+        await this.renderCurrentPlots()
+      }
+    } catch (error) { this.setStatus(error instanceof Error ? error.message : String(error), true) }
+    finally { this.rendering = false }
   }
 
-  private async renderPlots(): Promise<void> {
-    if (!this.visible || !this.payload) return
+  private async renderCurrentPlots(): Promise<void> {
+    if (!this.visible) return
+    this.el('#gsea-volcano').hidden=!this.payload
+    if (!this.payload) {
+      this.el('#gsea-curve').hidden=true
+      this.el('#gsea-curve-empty').hidden=false
+      this.el('#gsea-curve-empty').textContent=this.enrichment.status
+      this.el('#gsea-curve-label').textContent=''
+      return
+    }
+    const payload = this.payload
     await renderFigure(
       this.el<HTMLDivElement>('#gsea-volcano'),
-      buildGseaVolcanoFigure(this.payload, this.fdr, this.selectedKey),
+      buildGseaVolcanoFigure(payload, this.fdr, this.selectedKey),
       undefined,
       'gl2d',
       (customdata) => {
@@ -318,10 +318,11 @@ export class GseaController {
         }
       },
     )
-    const figure = buildEnrichmentFigure(this.payload, this.selectedKey)
+    if (this.payload !== payload || !this.visible) return
+    const figure = buildEnrichmentFigure(payload, this.selectedKey, this.selectedSites)
     const plot = this.el<HTMLDivElement>('#gsea-curve')
     const empty = this.el<HTMLParagraphElement>('#gsea-curve-empty')
-    const selected = selectedSequenceSet(this.payload, this.selectedKey)
+    const selected = selectedSequenceSet(payload, this.selectedKey)
     this.el('#gsea-curve-label').textContent = selected?.description ?? ''
     plot.hidden = figure === null
     empty.hidden = figure !== null

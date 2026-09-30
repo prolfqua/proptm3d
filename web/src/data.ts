@@ -205,7 +205,9 @@ export async function loadAppData(baseUrl = document.baseURI): Promise<AppData> 
       structure: structureBySite.get(siteKey(row.protein_Id, row.site)) ?? UNAVAILABLE_STRUCTURE,
     };
   });
-  return { run, proteins, siteIndex };
+  return { run, proteins, siteIndex, sites: sites.map(site => ({ ...normalizeSite(site),
+    structure: structureBySite.get(siteKey(site.protein_Id, site.site)) ?? UNAVAILABLE_STRUCTURE,
+  })) };
 }
 
 export async function loadProteinDetail(

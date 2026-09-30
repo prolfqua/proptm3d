@@ -1,23 +1,14 @@
+import { trackTable } from './table-data.js'
 import { TabulatorFull, type ColumnDefinition } from 'tabulator-tables'
 
-import { membershipKey, selectedMemberships, selectedSequenceSet, sequenceSetKey } from './gsea.js'
+import { sequenceSetKey, type GseaSiteTableRow } from './gsea.js'
 import type {
-  GseaMembership,
-  GseaPayload,
   GseaSequenceSet,
-  ProteinCatalogRow,
 } from './types.js'
 
 export type GseaTableRow = GseaSequenceSet & { row_key: string }
-export type GseaSiteTableRow = GseaMembership & {
-  row_key: string
-  gene_name: string
-  accession: string
-  nes: number
-}
-
-function numberLabel(value: number, digits = 3): string {
-  return Number.isFinite(value) ? value.toFixed(digits) : '—'
+function numberLabel(value: number | null, digits = 3): string {
+  return value !== null && Number.isFinite(value) ? value.toFixed(digits) : '—'
 }
 
 export function gseaTableRows(rows: GseaSequenceSet[]): GseaTableRow[] {
@@ -50,31 +41,7 @@ export function createGseaTable(
     placeholder: 'No sequence sets pass the GSEA FDR cutoff.',
   })
   table.on('rowClick', (_event, row) => select((row.getData() as GseaTableRow).row_key))
-  return table
-}
-
-export function gseaSiteTableRows(
-  payload: GseaPayload,
-  selectedKey: string,
-  leadingEdgeOnly: boolean,
-  proteins: readonly ProteinCatalogRow[],
-  search: string,
-): GseaSiteTableRow[] {
-  const selected = selectedSequenceSet(payload, selectedKey)
-  if (!selected) return []
-  const byId = new Map(proteins.map((protein) => [protein.protein_Id, protein]))
-  const rows = selectedMemberships(payload, selectedKey, leadingEdgeOnly).map((membership) => {
-    const protein = byId.get(membership.protein_Id)
-    return {
-      ...membership,
-      row_key: membershipKey(membership),
-      gene_name: protein?.gene_name ?? membership.protein_Id,
-      accession: protein?.accession ?? '',
-      nes: selected.nes,
-    }
-  })
-  return search ? rows.filter((row) => [row.gene_name, row.accession, row.protein_Id, row.site]
-    .some((value) => value.toLocaleLowerCase().includes(search))) : rows
+  return trackTable(table)
 }
 
 export function createGseaSiteTable(
@@ -86,7 +53,12 @@ export function createGseaSiteTable(
     { title: 'Gene', field: 'gene_name', frozen: true, minWidth: 105 },
     { title: 'Accession', field: 'accession', minWidth: 110 },
     { title: 'Site', field: 'site', minWidth: 170, tooltip: true },
+    { title: 'log2FC', field: 'effect', sorter: 'number', hozAlign: 'right', width: 90,
+      formatter: cell => numberLabel(cell.getValue() as number | null) },
+    { title: 'Site FDR', field: 'fdr', sorter: 'number', hozAlign: 'right', width: 90,
+      formatter: cell => numberLabel(cell.getValue() as number | null, 4) },
     { title: 'Rank', field: 'rank', sorter: 'number', hozAlign: 'right', width: 75,
+      formatter: cell => numberLabel(cell.getValue() as number | null, 0),
       headerTooltip: 'Original position of the sequence window in the ranked GSEA input' },
     { title: 'Running ES', field: 'running_score', sorter: 'number', hozAlign: 'right', width: 105,
       formatter: (cell) => numberLabel(cell.getValue() as number),
@@ -95,7 +67,7 @@ export function createGseaSiteTable(
       formatter: (cell) => numberLabel(cell.getValue() as number),
       headerTooltip: 'Normalized enrichment score of the selected sequence set' },
     { title: 'Leading edge', field: 'is_leading_edge', hozAlign: 'center', width: 105,
-      formatter: 'tickCross' },
+      formatter: cell => cell.getValue() === null ? '—' : cell.getValue() ? 'Yes' : 'No' },
     { title: 'Sequence window', field: 'sequence_window', minWidth: 170, tooltip: true },
     { title: 'Protein ID', field: 'protein_Id', minWidth: 125 },
   ]
@@ -106,9 +78,9 @@ export function createGseaSiteTable(
     index: 'row_key',
     layout: 'fitDataStretch',
     initialSort: [{ column: 'rank', dir: 'asc' }],
-    placeholder: 'No sites match the selected sequence set and search.',
+    placeholder: 'No sites match C and the protein search.',
     selectableRows: true,
   })
   table.on('rowClick', (_event, row) => open(row.getData() as GseaSiteTableRow))
-  return table
+  return trackTable(table)
 }

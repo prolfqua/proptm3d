@@ -1,10 +1,6 @@
+import { rowsForSites, siteIdentity } from './upset.js'
 import type { FigureSpec } from './charts.js'
-import type { GseaMembership, GseaPayload, GseaSequenceSet } from './types.js'
-
-export interface SiteIdentity {
-  protein_Id: string
-  site: string
-}
+import type { AppData, GseaMembership, GseaPayload, GseaSequenceSet } from './types.js'
 
 export function sequenceSetKey(source: string, sequenceSet: string): string {
   return `${source}\u0000${sequenceSet}`
@@ -43,25 +39,6 @@ export function selectedMemberships(
     .sort((left, right) => left.rank - right.rank
       || left.protein_Id.localeCompare(right.protein_Id)
       || left.site.localeCompare(right.site))
-}
-
-export function gseaSiteKeys(
-  payload: GseaPayload,
-  selectedKey: string,
-  leadingEdgeOnly: boolean,
-): Set<string> {
-  return new Set(selectedMemberships(payload, selectedKey, leadingEdgeOnly)
-    .map((row) => `${row.protein_Id}\u0000${row.site}`))
-}
-
-export function filterSitesByGsea<T extends SiteIdentity>(
-  rows: readonly T[],
-  payload: GseaPayload,
-  selectedKey: string,
-  leadingEdgeOnly: boolean,
-): T[] {
-  const keys = gseaSiteKeys(payload, selectedKey, leadingEdgeOnly)
-  return rows.filter((row) => keys.has(`${row.protein_Id}\u0000${row.site}`))
 }
 
 function plotLayout(title: string, xTitle: string, yTitle: string): Record<string, unknown> {
@@ -122,6 +99,7 @@ export function buildGseaVolcanoFigure(
 export function buildEnrichmentFigure(
   payload: GseaPayload,
   selectedKey: string,
+  selectedSites: ReadonlySet<string> = new Set(),
 ): FigureSpec | null {
   const selected = selectedSequenceSet(payload, selectedKey)
   if (!selected) return null
@@ -145,6 +123,8 @@ export function buildEnrichmentFigure(
   const leading = curve.hit_indices.map((rank, index) => ({
     rank, score: curve.hit_scores[index], customdata: hitData[index],
   })).filter((hit) => leadingRanks.has(hit.rank))
+  const selectedHits = curve.hit_indices.map((rank,index)=>({rank,score:curve.hit_scores[index],customdata:hitData[index]}))
+    .filter(hit=>(byRank.get(hit.rank)??[]).some(row=>selectedSites.has(siteIdentity(row.protein_Id,row.site))))
   return {
     data: [
       {
@@ -169,6 +149,9 @@ export function buildEnrichmentFigure(
         hovertemplate: 'Leading-edge hit at rank %{customdata[0]}<br>%{customdata[1]}<br>'
           + 'Running score %{y:.3f}<extra></extra>',
       },
+      {type:'scatter',mode:'markers',name:'Selected sites',x:selectedHits.map(h=>h.rank),y:selectedHits.map(h=>h.score),
+        customdata:selectedHits.map(h=>h.customdata),marker:{color:'#1f4f82',size:9,symbol:'circle-open',line:{width:2}},
+        hovertemplate:'Selected hit at rank %{customdata[0]}<br>%{customdata[1]}<extra></extra>'},
     ],
     layout: plotLayout(
       `${selected.sequence_set} · NES ${selected.nes.toFixed(2)} · FDR ${selected.fdr.toPrecision(3)}`,
@@ -176,4 +159,42 @@ export function buildEnrichmentFigure(
       'Running enrichment score',
     ),
   }
+}
+
+export interface GseaSiteTableRow {
+  row_key: string
+  protein_Id: string
+  site: string
+  gene_name: string
+  accession: string
+  sequence_window: string | null
+  rank: number | null
+  running_score: number | null
+  is_leading_edge: boolean | null
+  nes: number | null
+  effect: number | null
+  fdr: number | null
+}
+
+export function gseaSiteTableRows(
+  payload: GseaPayload | null, selectedKey: string, data: AppData, contrast: string,
+  selectedSites: ReadonlySet<string>, search: string,
+): GseaSiteTableRow[] {
+  const selected = payload ? selectedSequenceSet(payload, selectedKey) : null
+  const members = new Map<string, ReturnType<typeof selectedMemberships>>()
+  for (const member of payload ? selectedMemberships(payload, selectedKey, false) : []) {
+    const id = siteIdentity(member.protein_Id, member.site)
+    members.set(id, [...(members.get(id) ?? []), member])
+  }
+  const results = new Map(data.siteIndex.filter(r=>r.contrast===contrast).map(r=>[siteIdentity(r.protein_Id,r.site),r]))
+  const rows = rowsForSites(data.sites, selectedSites).flatMap<GseaSiteTableRow>(site => {
+    const id = siteIdentity(site.protein_Id, site.site), result = results.get(id)
+    const common = {protein_Id:site.protein_Id, site:site.site, gene_name:site.gene_name, accession:site.accession,
+      effect:result?.effect??null, fdr:result?.fdr??null}
+    const hits = members.get(id)
+    return hits?.length ? hits.map(member=>({...common,...member,row_key:membershipKey(member),nes:selected!.nes}))
+      : [{...common,row_key:id,sequence_window:site.SequenceWindow,rank:null,running_score:null,is_leading_edge:null,nes:null}]
+  })
+  return search ? rows.filter(row=>[row.gene_name,row.accession,row.protein_Id,row.site]
+    .some(value=>value.toLocaleLowerCase().includes(search))) : rows
 }

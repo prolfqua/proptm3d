@@ -4,12 +4,12 @@ import { test } from 'node:test'
 import {
   buildEnrichmentFigure,
   buildGseaVolcanoFigure,
-  filterSitesByGsea,
-  gseaSiteKeys,
   selectedMemberships,
   sequenceSetKey,
   sequenceSetsAtFdr,
 } from '../src/gsea.js'
+import { sequenceSets } from '../src/filtering.js'
+import { computeUpSet, resolveSelection, siteIdentity } from '../src/upset.js'
 import type { GseaPayload } from '../src/types.js'
 
 const payload: GseaPayload = {
@@ -40,22 +40,20 @@ const payload: GseaPayload = {
       sequence_window: 'CCCC', rank: 1, running_score: -0.5, is_leading_edge: true },
   ],
   curves: [
-    { source: 'KinaseLib', sequence_set: 'ERK2', rank_indices: [0, 1, 2],
+    { source: 'KinaseLib', sequence_set: 'ERK2', rank_indices: [1, 2, 3],
       running_scores: [0, 0.8, 1.8], hit_indices: [1, 2], hit_scores: [0.8, 1.8] },
   ],
 }
 
-test('GSEA selection applies one optional site predicate with a leading-edge mode', () => {
+test('B eligibility, full membership and leading-edge subsets are independent', () => {
   const key = sequenceSetKey('KinaseLib', 'ERK2')
-  const rows = [
-    { protein_Id: 'P1', site: 'S1' },
-    { protein_Id: 'P1', site: 'S2' },
-    { protein_Id: 'P2', site: 'S3' },
-  ]
-
-  assert.deepEqual([...gseaSiteKeys(payload, key, false)], ['P1\u0000S1', 'P1\u0000S2'])
-  assert.deepEqual(filterSitesByGsea(rows, payload, key, false), rows.slice(0, 2))
-  assert.deepEqual(filterSitesByGsea(rows, payload, key, true), rows.slice(0, 1))
+  const all = computeUpSet(sequenceSets(payload, 0.05, false))
+  const leading = computeUpSet(sequenceSets(payload, 0.05, true))
+  assert.equal(all.sets.length, 1)
+  assert.deepEqual(resolveSelection(all, {kind:'set',id:key}), new Set(['P1\u0000S1','P1\u0000S2']))
+  assert.deepEqual(resolveSelection(leading, {kind:'set',id:key}), new Set(['P1\u0000S1']))
+  assert.equal(sequenceSets(payload, 0.01, false).length, 0)
+  assert.equal(sequenceSets(payload, 0.3, false).length, 2)
   assert.deepEqual(selectedMemberships(payload, key, false).map((row) => row.rank), [1, 2])
 })
 
@@ -78,4 +76,15 @@ test('selected sequence set renders its native running enrichment curve and hits
     [2, 'P1 · S2', ['P1\u0000S2\u00002']],
   ])
   assert.equal(buildEnrichmentFigure(payload, sequenceSetKey('KinaseLib', 'AKT1')), null)
+})
+
+test('C highlights use rank identity and never change the full curve or leading edge', () => {
+  const reordered = {...payload, memberships:[payload.memberships[1],payload.memberships[0],payload.memberships[2]]}
+  const key = sequenceSetKey('KinaseLib','ERK2')
+  const base = buildEnrichmentFigure(reordered, key)!
+  const selected = buildEnrichmentFigure(reordered, key, new Set([siteIdentity('P1','S2')]))!
+  assert.deepEqual(selected.data.slice(0,3), base.data.slice(0,3))
+  assert.deepEqual(selected.data[3].x,[2])
+  assert.deepEqual(selected.data[3].y,[1.8])
+  assert.deepEqual(selected.data[2].x,[1])
 })

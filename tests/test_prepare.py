@@ -27,6 +27,7 @@ def _gsea_artifact():
     document = {
         "data": {
             "a_vs_b": {
+                "gene_pool": {"ASAA": {"rank": 2}, "AATA": {"rank": 1}},
                 "categories": {
                     "PTM-SEA": {
                         "terms": [
@@ -45,10 +46,10 @@ def _gsea_artifact():
                         ],
                         "gsea_result": {
                             "running_scores": {"KINASE_X": [0.0, 0.8, 1.5]},
-                            "hit_indices": {"KINASE_X": [0, 1]},
+                            "hit_indices": {"KINASE_X": [1, 2]},
                         },
                     }
-                }
+                },
             }
         }
     }
@@ -424,20 +425,30 @@ def test_prepare_zip_requires_statistics_member(tmp_path):
         prepare.prepare_stats(archive, tmp_path / "output_3d", ("DPA",))
 
 
-def test_prepare_gsea_writes_stats_and_gsea_parquet(prepared_h5mu, external_data, tmp_path):
+@pytest.mark.parametrize(
+    ("method", "analysis", "directory"),
+    [
+        ("DPA", "DPA", "PTM_DPA"),
+        ("DPU", "DPU", "PTM_DPU"),
+        ("CF-DPU", "CF", "PTM_CF_DPU"),
+    ],
+)
+def test_prepare_gsea_writes_stats_and_gsea_parquet(
+    prepared_h5mu, external_data, tmp_path, method, analysis, directory
+):
     results = tmp_path / "PTM_results.h5mu"
     shutil.copyfile(prepared_h5mu, results)
     payload = _gsea_artifact()
-    relative_result = "PTM_DPA/result_ptm_sea.json.gz"
+    relative_result = f"{directory}/result_ptm_sea.json.gz"
     with h5py.File(results, "r+") as handle:
         handle["uns/prophosqua/stage"][...] = "PTM_results"
         namespace = handle["uns/prophosqua"]
         files = namespace.create_group("enrichment_files")
         checksums = namespace.create_group("enrichment_sha256")
         string = h5py.string_dtype()
-        files.create_dataset("PTMSEA__DPA", data=relative_result, dtype=string)
+        files.create_dataset(f"PTMSEA__{analysis}", data=relative_result, dtype=string)
         checksums.create_dataset(
-            "PTMSEA__DPA",
+            f"PTMSEA__{analysis}",
             data=hashlib.sha256(payload).hexdigest(),
             dtype=string,
         )
@@ -446,9 +457,11 @@ def test_prepare_gsea_writes_stats_and_gsea_parquet(prepared_h5mu, external_data
         output.write(results, "PTM_example/PTM_results.h5mu")
         output.writestr(f"PTM_example/{relative_result}", payload)
 
-    [manifest] = prepare.prepare_gsea(archive, tmp_path / "output_3d", ("DPA",), tmp_path / "cache")
+    [manifest] = prepare.prepare_gsea(
+        archive, tmp_path / "output_3d", (method,), tmp_path / "cache"
+    )
 
-    folder = tmp_path / "output_3d" / "DPA"
+    folder = tmp_path / "output_3d" / method
     assert manifest["preparation"] == "gsea"
     assert manifest["counts"]["gsea_terms"] == 1
     assert manifest["counts"]["gsea_sources"] == 1
@@ -470,17 +483,17 @@ def test_prepare_gsea_writes_stats_and_gsea_parquet(prepared_h5mu, external_data
     ).to_dicts() == [
         {
             "sequence_set": "KINASE_X",
-            "site": "P12345_S2~ASAA",
-            "rank": 0,
+            "site": "P12345_T4~AATA",
+            "rank": 1,
             "running_score": 0.0,
-            "is_leading_edge": True,
+            "is_leading_edge": False,
         },
         {
             "sequence_set": "KINASE_X",
-            "site": "P12345_T4~AATA",
-            "rank": 1,
+            "site": "P12345_S2~ASAA",
+            "rank": 2,
             "running_score": 0.8,
-            "is_leading_edge": False,
+            "is_leading_edge": True,
         },
     ]
     curves = pl.read_parquet(folder / files["curves_parquet"])
@@ -489,18 +502,18 @@ def test_prepare_gsea_writes_stats_and_gsea_parquet(prepared_h5mu, external_data
     ).to_dicts() == [
         {
             "sequence_set": "KINASE_X",
-            "rank_indices": [0, 1, 2],
+            "rank_indices": [1, 2, 3],
             "running_scores": [0.0, 0.8, 1.5],
-            "hit_indices": [0, 1],
+            "hit_indices": [1, 2],
             "hit_scores": [0.0, 0.8],
         }
     ]
     assert (folder / "tables" / "measurements.parquet").is_file()
     assert (folder / "tables" / "site_stats.parquet").is_file()
     assert not list(folder.rglob("result_*.json.gz"))
-    assert files["curves_parquet"] in prepared_root.method_files(tmp_path / "output_3d", "DPA")
+    assert files["curves_parquet"] in prepared_root.method_files(tmp_path / "output_3d", method)
     [replacement] = prepare.prepare_gsea(
-        archive, tmp_path / "output_3d", ("DPA",), tmp_path / "cache"
+        archive, tmp_path / "output_3d", (method,), tmp_path / "cache"
     )
     assert replacement["counts"]["gsea_terms"] == 1
 
@@ -517,7 +530,7 @@ def test_gsea_memberships_require_one_rank_per_sequence_window():
     curves = pl.DataFrame([{**keys, "hit_indices": [0, 1], "hit_scores": [0.0, 0.8]}])
 
     with pytest.raises(ValueError, match="do not align"):
-        prepare._gsea_memberships(terms, curves, pl.DataFrame())
+        prepare._gsea_memberships(terms, curves, pl.DataFrame(), pl.DataFrame())
 
 
 def test_prepare_gsea_reads_unpacked_delivery_folder(prepared_h5mu, external_data, tmp_path):
@@ -546,6 +559,43 @@ def test_prepare_gsea_reads_unpacked_delivery_folder(prepared_h5mu, external_dat
 
     assert manifest["counts"]["gsea_memberships"] == 2
     assert manifest["gsea"]["results"][0]["contrasts"]["a_vs_b"]
+
+
+@pytest.mark.parametrize("bad_rank", [None, 3, 2])
+def test_gsea_rank_join_preserves_shared_windows_and_rejects_missing_coordinates(bad_rank):
+    keys = {
+        "analysis": "DPA",
+        "contrast": "A",
+        "source": "Kinase",
+        "result_stage": "MEA",
+        "term_id": "K",
+    }
+    terms = pl.DataFrame([{**keys, "gene_ids": ["ASAA", "AATA"], "leading_edge_ids": ["ASAA"]}])
+    curves = pl.DataFrame([{**keys, "hit_indices": [1, 2], "hit_scores": [0.2, 0.8]}])
+    ranks = pl.DataFrame(
+        {
+            "analysis": ["DPA", "DPA"],
+            "contrast": ["A", "A"],
+            "result_stage": ["MEA", "MEA"],
+            "sequence_window": ["ASAA", "AATA"],
+            "rank": [bad_rank, 1],
+        }
+    )
+    sites = pl.DataFrame(
+        {
+            "protein_Id": ["P1", "P2", "P1"],
+            "site": ["S2", "S2", "T4"],
+            "SequenceWindow": ["ASAA", "ASAA", "AATA"],
+        }
+    )
+    if bad_rank != 2:
+        with pytest.raises(ValueError, match="gene_pool ranks"):
+            prepare._gsea_memberships(terms, curves, ranks, sites)
+        return
+    members = prepare._gsea_memberships(terms, curves, ranks, sites)
+    assert members["rank"].to_list() == [1, 2, 2]
+    assert members["running_score"].to_list() == [0.2, 0.8, 0.8]
+    assert members["is_leading_edge"].to_list() == [False, True, True]
 
 
 def test_prepare_gsea_requires_results_in_completed_delivery(prepared_h5mu, tmp_path):
@@ -721,11 +771,20 @@ def test_cli_serve_requires_method_and_folder(capsys):
     assert "--target" in capsys.readouterr().err
 
 
+def test_cli_serve_help_distinguishes_prepared_root_from_gsea(capsys):
+    with pytest.raises(SystemExit, match="0"):
+        cli.app(["serve", "--help"])
+    help_text = capsys.readouterr().out
+    assert "Prepared root folder or bundle ZIP" in help_text
+    assert "GSEA is prepared data" in help_text
+    assert "serve DPA PREPARED_ROOT" in help_text
+
+
 def test_serve_rejects_unprepared_path_without_folder(tmp_path):
-    with pytest.raises(ValueError, match="Pass a prepared FOLDER, METHOD FOLDER"):
+    with pytest.raises(ValueError, match=r"Pass PREPARED_ROOT or BUNDLE\.zip"):
         cli.serve("DPA")
-    with pytest.raises(ValueError, match="Unknown method"):
-        cli.serve("unknown", tmp_path)
+    with pytest.raises(ValueError, match="GSEA is prepared data, not a serve method"):
+        cli.serve("gsea", tmp_path)
 
 
 def test_cli_prepare_requires_explicit_input(tmp_path, capsys):

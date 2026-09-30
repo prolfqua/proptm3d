@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from proptm3d import cli
+from proptm3d import cli, webapp
 
 
 @pytest.fixture(autouse=True)
@@ -66,6 +66,25 @@ def test_cli_prepare_and_clean_select_folders(tmp_path, monkeypatch):
     assert calls[1][2] == output
     assert calls[2] == ("clean", output)
     assert cli.prepared_history.prepared_folders() == ()
+
+
+def test_port_conflict_prints_clean_cli_error(monkeypatch, capsys):
+    def conflict():
+        raise webapp.PortInUseError("Port 8000 is already in use; use --port 8001")
+
+    monkeypatch.setattr(cli, "app", conflict)
+    with pytest.raises(SystemExit, match="1"):
+        cli.main()
+    assert capsys.readouterr().err == "Error: Port 8000 is already in use; use --port 8001\n"
+
+
+def test_unknown_serve_method_prints_clean_cli_error(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cli.sys, "argv", ["proptm3d", "serve", "gsea", str(tmp_path)])
+    with pytest.raises(SystemExit, match="1"):
+        cli.main()
+    error = capsys.readouterr().err
+    assert error.startswith("Error: Unknown method: gsea")
+    assert "Traceback" not in error
 
 
 def test_cli_prepare_defaults_output_beside_input(tmp_path, monkeypatch):

@@ -1,4 +1,5 @@
 import { html, type TemplateResult } from 'lit'
+import { renderFilters } from './filter-panel.js'
 
 import { renderGseaControls, renderGseaFindPanel, type GseaViewActions } from './gsea-view.js'
 
@@ -15,7 +16,6 @@ export interface AppViewActions extends GseaViewActions {
   refreshSummary: () => void
   showMain: (view: MainView) => void
   showFind: (view: FindView) => void
-  changeShowAllSites: () => void
   showDetailView: (view: DetailView) => void
   changeStructureStyle: () => void
 }
@@ -31,37 +31,37 @@ export function renderApp(actions: AppViewActions): TemplateResult {
     <aside id="reading-guide" class="reading-guide" aria-label="Data and color explanations" hidden @keydown=${(event: KeyboardEvent) => { if (event.key === 'Escape') actions.toggleGuide(false) }}>
       <div class="guide-heading"><h2>How to read this</h2><button type="button" aria-label="Close explanations" @click=${() => actions.toggleGuide(false)}>×</button></div>
       <dl>
-        <dt>Estimate</dt><dd>Observed uses measured site abundance. LOD imputed means a value below the limit of detection was imputed in the upstream analysis. All does not filter by estimate type; use Show all sites in Protein detail to include sites without a passing result.</dd>
+        <dt>Estimate</dt><dd>Observed uses measured site abundance. LOD imputed means a value below the limit of detection was imputed in the upstream analysis. All does not filter by estimate type; use Show all sites in shared filtering to suspend every site filter.</dd>
         <dt>Exposure</dt><dd>Predicted residue exposure from the AlphaFold model, using the PAE-aware StructureMap neighborhood. Exposed means at most five qualifying neighbors in a 12 Å, 70° partial sphere; buried means more than five. This is not an experimental measurement of solvent accessibility.</dd>
         <dt>Region</dt><dd>IDR means predicted intrinsically disordered region; structured means not classified as IDR. The call uses smoothed PAE-aware neighbors in a 24 Å sphere. Sites without matched model context are neither category.</dd>
         <dt>pLDDT</dt><dd>AlphaFold's per-residue local confidence score, 0–100; higher is more confident. It is not an exposure or disorder measurement.</dd>
         <dt>UniProt features</dt><dd>Prepared UniProt domains, regions, motifs, repeats, transmembrane segments and signal peptides. Generic Chain intervals are not colored. Only exact coordinates on a sequence-matched protein are colored; unannotated residues are gray. More specific feature types take precedence where intervals overlap.</dd>
         <dt>FDR and |log2FC|</dt><dd>A site passes only when FDR is strictly below the selected cutoff and absolute log2 fold change is strictly above the selected cutoff. These filters do not change the underlying abundance values.</dd>
+        <dt>Plot selection colors</dt><dd>Red/blue points are selected and pass the site thresholds in the contrast context. Orange points are selected but outside those thresholds here. Sites without plot coordinates stay in the protein table; counts below each plot report omissions instead of placing missing values at zero.</dd>
         <dt>UpSet intersections</dt>
         <dd>
-          Each column is an exact set of contrasts in which the same phosphosite passes the active filters.
-          Clicking a bar or matrix dot restricts all workspaces to those sites and their proteins. Use the UpSet
-          selection toggle with the other filters to suspend or restore that restriction without losing the selection.
+          A compares significant sites across contrasts; B compares eligible sequence_sets. Set-size bars select
+          whole sets and columns select exact intersections. C defaults to their union with enabled estimate and
+          structural filters. Off disables a filter; All includes its union. Show all sites suspends the hierarchy.
+          In A and B, Dots per intersection limits the displayed columns only: one dot means exclusive
+          to one set, two dots means shared by exactly two sets. Whole-set bars still include shared sites.
+          In B, Find sequence set brings matching rows and their intersections into view without changing
+          filter membership. With a dot count selected, B ranks rows by their largest matching intersection.
         </dd>
       </dl>
     </aside>
-    <div class="controls global-filters" role="group" aria-label="Site filters">
-      <div class="control threshold"><label for="fdr-cutoff">FDR &lt;</label><input id="fdr-cutoff" type="number" min="0" max="1" step="0.01" value="0.05" @input=${actions.changeThresholds} /></div>
-      <div class="control threshold"><label for="effect-cutoff">|log2FC| &gt;</label><input id="effect-cutoff" type="number" min="0" step="0.1" value="1" @input=${actions.changeThresholds} /></div>
-      <div class="control global-contrast"><label for="displayed-contrast">Displayed contrast</label><select id="displayed-contrast" @change=${actions.changeDisplayedContrast}></select></div>
-      <div class="control estimate"><label for="estimate-type">Estimate</label><select id="estimate-type" @change=${actions.changeEstimateType}><option value="all">All</option><option value="observed">Observed</option><option value="lod_imputed">LOD imputed</option></select></div>
-      <div class="control structural"><label for="exposure-filter">Exposure</label><select id="exposure-filter" title="Bludau prediction-aware exposure; sites without matched AlphaFold context are excluded unless All" @change=${actions.changeStructuralFilters}><option value="all">All</option><option value="exposed">Exposed</option><option value="buried">Buried</option></select></div>
-      <div class="control structural"><label for="region-filter">Region</label><select id="region-filter" title="Bludau prediction-aware intrinsically disordered region; sites without matched AlphaFold context are excluded unless All" @change=${actions.changeStructuralFilters}><option value="all">All</option><option value="idr">IDR</option><option value="structured">Structured</option></select></div>
-      ${renderGseaControls(actions)}
-      <div id="upset-filter-control" class="control upset-filter" hidden>
-        <span id="upset-filter-title" class="control-label">UpSet selection</span>
-        <button id="upset-filter-enabled" class="filter-toggle" type="button">
-          <span id="upset-filter-state" class="toggle-state">Off</span>
-          <span id="upset-filter-label">Apply selected sites</span>
-        </button>
-      </div>
-      <div class="control global-search"><label for="find-search">Search</label><input id="find-search" type="search" placeholder="Gene, ID or accession" @input=${actions.refreshSummary} /></div>
-    </div>
+    ${renderFilters({
+      a: html`<div class="control threshold"><label for="fdr-cutoff">Site FDR &lt;</label><input id="fdr-cutoff" type="number" min="0" max="1" step="0.01" value="0.05" @input=${actions.changeThresholds} /></div>
+        <div class="control threshold"><label for="effect-cutoff">|log2FC| &gt;</label><input id="effect-cutoff" type="number" min="0" step="0.1" value="1" @input=${actions.changeThresholds} /></div>`,
+      b: html`<div class="control threshold"><label for="gsea-fdr">GSEA FDR &lt;</label><input id="gsea-fdr" type="number" min="0" max="1" step="0.01" value="0.05" @input=${actions.changeGseaFdr} /></div>
+        ${renderGseaControls(actions)}`,
+      c: html`<div class="control estimate"><label for="estimate-type">Estimate</label><select id="estimate-type" @change=${actions.changeEstimateType}><option value="all">All</option><option value="observed">Observed</option><option value="lod_imputed">LOD imputed</option></select></div>
+        <div class="control structural"><label for="exposure-filter">Exposure</label><select id="exposure-filter" title="Exposure sets require matched AlphaFold context. All disables this operand; other C operands may still select unmatched sites." @change=${actions.changeStructuralFilters}><option value="all">All</option><option value="exposed">Exposed</option><option value="buried">Buried</option></select></div>
+        <div class="control structural"><label for="region-filter">Region</label><select id="region-filter" title="Region sets require matched AlphaFold context. All disables this operand; other C operands may still select unmatched sites." @change=${actions.changeStructuralFilters}><option value="all">All</option><option value="idr">IDR</option><option value="structured">Structured</option></select></div>`,
+    }, html`
+      <div class="control"><label for="displayed-contrast">Contrast shown in plots and GSEA</label><select id="displayed-contrast" @change=${actions.changeDisplayedContrast}></select></div>
+      <div class="control global-search"><label for="find-search">Find protein</label><input id="find-search" type="search" placeholder="Gene, ID or accession" @input=${actions.refreshSummary} /></div>
+    `)}
     <nav class="main-tabs" aria-label="Workspaces">
       <button type="button" data-main="find" aria-selected="true" @click=${() => actions.showMain('find')}>Find proteins</button>
       <button type="button" data-main="protein" aria-selected="false" @click=${() => actions.showMain('protein')}>Protein detail</button>
@@ -77,19 +77,14 @@ export function renderApp(actions: AppViewActions): TemplateResult {
         </nav>
         ${renderGseaFindPanel()}
         <div id="find-grid" class="find-grid all-contrasts">
-          <div id="upset-card" class="card upset-card">
-            <div class="card-title"><span>Significant-site intersections</span><small id="upset-summary">Exact contrast membership</small></div>
-            <div class="card-body"><div id="upset-plot" class="upset-host"></div></div>
-            <div id="upset-note" class="metric-note">Click an intersection bar or matrix dot to filter the protein table.</div>
-          </div>
           <div class="card"><div class="card-title"><span id="find-count" class="scope-count">Proteins</span><small id="find-row-hint">Click a row to inspect its sites</small></div><div class="card-body flush"><div id="find-table" class="table-host"></div></div></div>
           <div id="focused-plots" class="focused-plots" hidden>
-            <div class="card"><div class="card-body"><div id="focus-volcano-plot" class="plot-host"></div></div></div>
+            <div class="card"><div class="card-body"><div id="focus-volcano-plot" class="plot-host"></div><div id="focus-volcano-note" class="metric-note"></div></div></div>
             <div class="card"><div class="card-body"><div id="focus-protein-site-plot" class="plot-host"></div><div id="focus-protein-site-note" class="metric-note"></div></div></div>
           </div>
         </div>
         <div id="find-plots" class="plot-grid" hidden>
-          <div class="card"><div class="card-body"><div id="volcano-plot" class="plot-host"></div></div></div>
+          <div class="card"><div class="card-body"><div id="volcano-plot" class="plot-host"></div><div id="volcano-note" class="metric-note"></div></div></div>
           <div class="card"><div class="card-body"><div id="protein-site-plot" class="plot-host"></div><div id="protein-site-note" class="metric-note"></div></div></div>
           <div class="logos">
             <div class="card"><div class="card-title">Up <small id="up-count"></small></div><div id="up-logo" class="logo-host"></div></div>
@@ -108,7 +103,6 @@ export function renderApp(actions: AppViewActions): TemplateResult {
               <span id="protein-links" class="protein-links" hidden><a id="uniprot-link" target="_blank" rel="noopener noreferrer">UniProt ↗</a><a id="string-link" target="_blank" rel="noopener noreferrer">STRING ↗</a></span>
             </div>
           </div>
-          <label id="show-all-sites-label" class="show-all-sites" hidden><input id="show-all-sites" type="checkbox" @change=${actions.changeShowAllSites} /> Show all sites</label>
         </div>
         <div id="protein-content" hidden>
           <div class="protein-grid">

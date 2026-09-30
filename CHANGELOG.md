@@ -6,13 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- UpSet panels now offer a Selected/All display toggle: selecting a set focuses its intersection columns, selecting an exact intersection focuses its member rows, and All restores the full plot without changing site filtering.
 - A `proptm3d` command prepares DPA, DPU, and CF-DPU static browser sites from `PTM_statistics.h5mu`, statistics delivery ZIPs, or completed delivery ZIPs containing `PTM_results.h5mu`.
 - `prepare stats` exports measured proteins and sites, method-specific effects and FDRs, aligned sample evidence, original site and total-protein effects, UniProt annotations, AlphaFold model metadata, and structural context as Parquet tables.
 - `prepare gsea` validates completed PTM delivery artifacts and adds contrast-scoped PTM-SEA, Kinase GSEA, and MEA sequence sets, exact site memberships, leading-edge assignments, and compact running-enrichment curves.
-- GSEA preparations add a Find-proteins subtab with an interactive sequence-set volcano, sortable results, running-enrichment curve, and a ranked site table for direct protein drill-down. Curve hits select their exact site rows, which report rank, running score, and sequence-set NES. Result and sequence-set selectors, GSEA FDR, leading-edge mode, and an explicit toggle apply the selected sites across the existing linked views.
+- GSEA preparations add a Find-proteins subtab with a sequence-set volcano, sortable results, complete running-enrichment curve, and a selected-site table for protein drill-down. The table includes log2FC, site FDR, one-based rank, running score and focused-set NES; selected hits are highlighted separately from leading edge. Curve hits select their exact site rows for protein drill-down.
 - `cache structures` and `cache context` manage reusable HUMAN and MOUSE AlphaFold v6 structures, PAE matrices, and the published Bludau/StructureMap prediction-aware exposure and IDR annotations.
 - A self-hosted TypeScript browser provides All contrasts, Single contrast, Single contrast sequlogos, and optional GSEA discovery views; linked Protein detail and Site abundance workspaces; volcano, protein-versus-site, N-to-C, sequence-logo, abundance, 3D structure, and PAE views; and no runtime dependency on a CDN or external data API.
-- All contrasts includes a site-level UpSet plot of exact significance membership across contrasts. Selecting a bar or matrix dot filters the contrast choices, protein tables, per-contrast plot overlays, sequence logos, Protein detail, and Site abundance to the matching contrasts, sites, and proteins; a toggle beside the shared filters reports the selected site and protein counts in every workspace and suspends or restores the selection without forgetting it.
+- A shared filtering panel provides hierarchical A (significant contrasts), B (eligible sequence_sets) and C (filter combinations) selection. Whole-set bars and exact-intersection columns are distinct, intersections support more than 32 sets, and large A/B plots page 50 combinations without changing their membership universe.
 - Protein detail can color AlphaFold structures by pLDDT, exposure, predicted region, exact UniProt feature type, N-to-C position, or a neutral color. Its N-to-C plot aligns UniProt features with residue-by-residue exposure, predicted region, and pLDDT tracks.
 - Independent Exposure and Region filters apply consistently to protein summaries, plots, Protein detail, 3D and N-to-C markers, and Site abundance without redefining statistical significance.
 - Portable single-method, selected-method, and all-method ZIPs materialize referenced structures, PAE, and residue-context files under one shared directory. Bundles include optional Python-standard-library launchers for macOS/Linux and Windows.
@@ -23,6 +24,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- The reusable UpSet plot now owns its Selected/All display toggle in the plot's top-left corner, consistently across A, B and C.
+- In a named-set Selected UpSet view, left bars show overlap counts from matching intersections, put the chosen set first, and omit zero-overlap rows; dot-count choices update these plotted counts without changing site filtering or paging totals.
+- Collapsing the filtering UpSets now leaves the contrast selector, protein search, and a compact selected-site, A/B/C state and active-property summary visible.
+- `serve --help` now identifies the prepared output root and distinguishes DPA/DPU/CF-DPU method names from the `prepare gsea` mode; the quickstart gives the concrete MiMB folder and an alternate port for an occupied default port.
+- Contrast display and protein search live in the filtering panel without changing A/B/C membership. C's selection count, Clear C and Show all sites live in C; inactive Clear C is hidden, and the contrast/search labels distinguish navigation from site filtering.
+- The B curve selector now states that it changes only the displayed running curve, not site filtering.
+- A and B selection controls and counts now sit inside their respective UpSet cards; B fills the left column while A and C stack on the right, with a single-column layout on narrower screens.
+- Site FDR and |log2FC| controls sit in A; GSEA FDR, enrichment-result, sequence-set search, curve focus and leading-edge controls sit in B; Estimate, Exposure and Region sit in C. The Settings tab is removed. A and B have display-only dots-per-intersection dropdowns (exclusive to one set, exactly two sets, etc.), with paging over matching columns and no changes to selected sites or whole-set counts; C shows combinations passing every active property choice and at least one A/B selection, while All retains the full union.
 - `prepare stats` and `prepare gsea` accept either delivery ZIPs or their unpacked folders; statistics preparation prefers `PTM_results.h5mu` when both result and statistics stages are present.
 - `prepare stats` and `prepare gsea` now default to `proptm3d_<input basename>` beside the input when no output folder is supplied; omitting the method prepares all methods, while a method-only positional selects that method in the default folder.
 - `bundle FOLDER` now bundles every prepared method and writes the shared method-chooser entry page; `--in FOLDER` remains available when positional methods select a subset.
@@ -33,12 +42,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Preparation now writes the multi-method chooser as the prepared root's `index.html`; bundling remains responsible for materializing shared cache files, rewriting their paths, adding launchers and metadata, and producing the portable ZIP.
 - Local serving is now read-only: it serves the static files and root `index.html` written by preparation or bundling, without synthesizing an entry page or updating prepared-folder history.
 - Every prepared site remains available even when it has no estimable result or matching structural context. Missing abundance remains null, and residue mismatches and unavailable context remain distinct from buried or structured classifications.
-- Shared FDR, absolute log2 fold-change, contrast, estimate-type, exposure, region, and search controls update the linked workspaces. Protein detail's Show all sites restores measured sites while retaining explicit estimate and structural filters.
-- The dense volcano and protein-versus-site plots retain complete static black backgrounds while exposing only qualifying red and blue points interactively. Hovering a protein row temporarily isolates that protein and restores the complete plot on leave.
+- C defaults to union of enabled filters, with explicit exact intersections and independent contrast/curve context. Clear C retains upstream choices; global Show all sites suspends and restores the complete hierarchy, including measured sites without results.
+- Protein, abundance, logo and statistical-plot views share C's site selection without reapplying filters. Dense plots retain their complete background and distinguish selected significant and non-significant sites; logos split selected valid windows by effect direction without hidden cutoffs. Hovering a protein row temporarily isolates that protein's selected points and restores the complete overlay on leave.
 - Site abundance uses a site table: hovering previews sample boxplots, leaving restores the selected site, and clicking opens it in Protein detail. DPA and DPU show aligned site and total-protein evidence; CF-DPU also shows corrected abundance.
 - Multi-method overviews report experimental groups, samples per group, coverage, method descriptions, and preparation provenance without counting paired enriched and total measurements as separate samples.
 - AlphaFold archive downloads resume from retained partial files, concurrent preparations share cache work, and interrupted context precomputation reuses completed model files.
 - Bundling verifies the browser asset inventory, refuses incomplete or unsafe prepared roots, writes atomically, and never overwrites an existing ZIP.
+
+### Fixed
+
+- UpSet count labels above intersection bars are clickable, including when the bars are too small to target.
+- Tiny UpSet set-size bars can now be selected through their full row names, including by keyboard, without distorting their plotted counts.
+- `serve` now prints an actionable one-line error instead of a traceback when its port is occupied or the method argument is invalid. A new invocation automatically replaces a verified proptm3d server on that port without stopping unrelated services.
+- B now fills the same vertical space as A and C together, with its large UpSet plot scrolling inside the card instead of stretching the A/C grid rows.
+- Finding a sequence_set now brings its B UpSet row and exact intersections into view and focuses its curve; one-/two-dot views rank B rows by their largest participating intersection instead of unrelated whole-set size.
+- Dots-per-intersection dropdowns offer only counts with actual intersections. If a selected count disappears after a filter change, the display returns to All intersections without changing the site selection.
+- UpSet plots retain their row-aware height after window resizing instead of collapsing inside their scroll containers.
+- UpSet A/B set rows now run largest-first, and dark horizontal count labels sit outside bars without shrinking or rotating. C's set-size bars select whole filter sets, including shared sites. Statistical plots and logos explicitly account for selected sites with missing values; the orange legend now says “Selected, outside thresholds” for the current contrast.
+- GSEA memberships now join sequence windows to source `gene_pool` ranks instead of pairing differently ordered member/hit arrays. Rank `r` uses `running_scores[r - 1]`; invalid coordinates fail clearly instead of inventing zero scores. Re-prepare GSEA outputs to correct existing exported ranks.
 
 ### Renamed
 

@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { buildNtoCFigure } from '../src/charts.js'
-import { buildDetailRows, selectDetailRows } from '../src/detail.js'
+import { buildDetailRows } from '../src/detail.js'
 import {
-  ALL_STRUCTURES, passesStructuralFilters, structureDetail, structureLabel, siteStructure,
-  UNAVAILABLE_STRUCTURE, type StructuralFilters,
+  structureDetail, structureLabel, siteStructure,
+  UNAVAILABLE_STRUCTURE,
 } from '../src/structural.js'
 import type { ProteinDetail, SiteStructuralContext } from '../src/types.js'
 
@@ -41,13 +41,6 @@ test('missing and mismatched context never becomes buried or structured', () => 
     assert.ok(!['exposed', 'buried'].includes(structure.exposure))
     assert.ok(!['idr', 'structured'].includes(structure.region))
     assert.equal(structure.plddt, null)
-    for (const filters of [
-      { exposure: 'exposed', region: 'all' }, { exposure: 'buried', region: 'all' },
-      { exposure: 'all', region: 'idr' }, { exposure: 'all', region: 'structured' },
-    ] as StructuralFilters[]) {
-      assert.equal(passesStructuralFilters(structure, filters), false)
-    }
-    assert.equal(passesStructuralFilters(structure, ALL_STRUCTURES), true)
   }
   assert.equal(siteStructure(context('S10', { mapping_status: 'residue_mismatch' })).exposure,
     'residue_mismatch')
@@ -86,37 +79,9 @@ function detail(): ProteinDetail {
   } as unknown as ProteinDetail
 }
 
-test('structural filters combine with significance, estimate type, and Show all', () => {
-  const thresholds = { fdr: 0.05, absEffect: 1 }
-  const sites = (filters: StructuralFilters, showAll = false) =>
-    selectDetailRows(detail(), 'A', thresholds, 'all', showAll, filters).map((row) => row.site)
-
-  assert.deepEqual(sites(ALL_STRUCTURES), ['S10', 'T20', 'Y30', 'S50'])
-  assert.deepEqual(sites(ALL_STRUCTURES, true), ['S10', 'T20', 'Y30', 'S40', 'S50'])
-  assert.deepEqual(sites({ exposure: 'exposed', region: 'all' }), ['S10'])
-  assert.deepEqual(sites({ exposure: 'buried', region: 'all' }), ['T20'])
-  assert.deepEqual(sites({ exposure: 'buried', region: 'all' }, true), ['T20', 'S40'])
-  assert.deepEqual(sites({ exposure: 'all', region: 'idr' }, true), ['S10', 'S40'])
-  assert.deepEqual(sites({ exposure: 'buried', region: 'idr' }, true), ['S40'])
-  assert.deepEqual(sites({ exposure: 'exposed', region: 'structured' }, true), [])
-  assert.ok(buildDetailRows(detail(), 'A', thresholds).every((row) =>
-    row.passes_cutoff === (row.site !== 'S40')), 'passes_cutoff stays statistical only')
-})
-
-test('the default structural filters reproduce the pre-context selection', () => {
-  const thresholds = { fdr: 0.05, absEffect: 1 }
-  const withoutContext = { ...detail(), context: [] }
-  for (const showAll of [false, true]) {
-    assert.deepEqual(
-      selectDetailRows(detail(), 'A', thresholds, 'all', showAll, ALL_STRUCTURES).map((row) => row.site),
-      buildDetailRows(withoutContext, 'A', thresholds).filter((row) => showAll || row.passes_cutoff)
-        .map((row) => row.site))
-  }
-})
-
 test('the N-to-C plot shows exactly the structurally selected sites', () => {
-  const rows = selectDetailRows(detail(), 'A', { fdr: 0.05, absEffect: 1 }, 'all', true,
-    { exposure: 'buried', region: 'all' })
+  const rows = buildDetailRows(detail(), 'A', { fdr: 0.05, absEffect: 1 })
+    .filter(row=>row.structure.exposure==='buried')
   const figure = buildNtoCFigure(detail(), null, 'DPA', 'A', null, 0.05, 1, new Set(rows.map((row) => row.site)))
   const plotted = figure.data.filter((trace) => trace.mode === 'markers')
     .flatMap((trace) => (trace.customdata as string[][]).map((point) => point[1]))

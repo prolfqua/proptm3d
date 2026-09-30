@@ -8,9 +8,7 @@ import {
   buildProteinSiteFigure,
   buildVolcanoFigure,
   focusProteinTraces,
-  plotThresholds,
-  proteinBackgroundPoints,
-  validThresholds,
+  plotSelectionNote,
 } from '../src/charts';
 import type { EvidencePayload, FeaturePayload, ProteinPayload, SiteIndexRow } from '../src/types';
 
@@ -36,16 +34,9 @@ const volcanoBackground = { file: 'data/plot_backgrounds/volcano-0.png', x_range
 const proteinSiteBackground = { file: 'data/plot_backgrounds/protein-site-0.png',
   x_range: [-3, 3] as [number, number], y_range: [-5, 5] as [number, number] };
 
-test('thresholds independently cap FDR and floor |log2FC|', () => {
-  assert.equal(validThresholds(0.25, 1), true);
-  assert.equal(validThresholds(0.2501, 1), false);
-  assert.equal(validThresholds(0.25, 0.99), false);
-  assert.equal(validThresholds(0, 1), false);
-});
-
-test('dot plots colour at most FDR < 0.25 and |log2FC| > 1 sites', () => {
-  assert.deepEqual(plotThresholds({ fdr: 1, absEffect: 0 }), { fdr: 0.25, absEffect: 1 });
-  assert.deepEqual(plotThresholds({ fdr: 0.05, absEffect: 2 }), { fdr: 0.05, absEffect: 2 });
+test('statistical plots accept the shared threshold range without hidden caps', () => {
+  const figure = buildVolcanoFigure([result({effect:0.5,fdr:0.4})], 'A_vs_B', 1, 0, volcanoBackground, true);
+  assert.deepEqual(figure.data[0].x, [0.5]);
 });
 
 test('volcano uses the static black background and exposes only passing points by default', () => {
@@ -74,7 +65,7 @@ test('volcano uses the static black background and exposes only passing points b
   assert.match(JSON.stringify(figure.layout.annotations), /1 sites lack an effect or FDR/);
   assert.deepEqual((figure.layout.xaxis as { title: { text: string } }).title,
     { text: 'Method log2 fold change' });
-  assert.throws(() => buildVolcanoFigure(rows, 'A_vs_B', 0.26, 1, volcanoBackground), RangeError);
+  assert.throws(() => buildVolcanoFigure(rows, 'A_vs_B', 1.01, 1, volcanoBackground), RangeError);
 });
 
 test('active UpSet selection overlays selected sites that do not pass in the displayed contrast', () => {
@@ -89,7 +80,7 @@ test('active UpSet selection overlays selected sites that do not pass in the dis
   assert.deepEqual((volcanoSelection.customdata as unknown[][]).map((point) => point[1]),
     ['P12345_T20', 'P12345_Y30']);
   assert.equal((volcanoSelection.marker as { color: string }).color, '#d28b3b');
-  assert.match(String(volcanoSelection.name), /Selected, not passing/);
+  assert.match(String(volcanoSelection.name), /Selected, outside thresholds/);
 
   const scatter = buildProteinSiteFigure(
     rows, 'A_vs_B', 0.05, 1, proteinSiteBackground, true,
@@ -98,6 +89,15 @@ test('active UpSet selection overlays selected sites that do not pass in the dis
   assert.deepEqual((scatterSelection.customdata as unknown[][]).map((point) => point[1]),
     ['P12345_T20', 'P12345_Y30']);
   assert.equal((scatterSelection.marker as { color: string }).color, '#d28b3b');
+});
+
+test('selection summaries account for measured sites without any result, without inventing plot coordinates', () => {
+  const empty = buildVolcanoFigure([], 'A_vs_B', .05, 1, volcanoBackground, true);
+  assert.equal(plotSelectionNote(empty, 4, 'A_vs_B'),
+    '4 selected sites · 0 plotted in A_vs_B. 4 lack the required values; retained in the protein table, not plotted at zero.');
+  const selected = buildVolcanoFigure([result({effect:0.1,fdr:.9})], 'A_vs_B', .05, 1, volcanoBackground, true);
+  assert.equal(plotSelectionNote(selected, 1, 'A_vs_B'), '1 selected sites · 1 plotted in A_vs_B.');
+  assert.deepEqual(selected.data[2].x, [0.1], 'threshold failures with coordinates remain visible');
 });
 
 test('protein-site scatter uses original site and total protein effects and reports missing pairs', () => {
@@ -119,7 +119,7 @@ test('protein-site scatter uses original site and total protein effects and repo
     source: proteinSiteBackground.file, xref: 'x', yref: 'y', x: -3, y: 5,
     sizex: 6, sizey: 10, xanchor: 'left', yanchor: 'top', sizing: 'stretch', layer: 'below',
   }]);
-  assert.throws(() => buildProteinSiteFigure(rows, 'A_vs_B', 0.05, 0.5, proteinSiteBackground), RangeError);
+  assert.throws(() => buildProteinSiteFigure(rows, 'A_vs_B', 0.05, -1, proteinSiteBackground), RangeError);
 });
 
 test('protein focus isolates colored points in both plots without changing their base figures', () => {
@@ -151,7 +151,7 @@ test('protein focus isolates colored points in both plots without changing their
   }
 });
 
-test('protein hover black points contain only non-passing plottable sites of the selected protein', () => {
+test('protein hover preserves the shared non-passing selection', () => {
   const rows = [
     result({ site: 'P12345_S10', effect: 2, fdr: 0.01 }),
     result({ site: 'P12345_T20', effect: 0.5, fdr: 0.02, protein_fc: 0.4, original_site_fc: 0.5 }),
@@ -161,19 +161,22 @@ test('protein hover black points contain only non-passing plottable sites of the
     result({ protein_Id: 'P67890', accession: 'P67890', site: 'P67890_S10', effect: 0.5, fdr: 0.02 }),
     result({ site: 'P12345_S60', contrast: 'C_vs_D', effect: 0.5, fdr: 0.02 }),
   ];
-  const volcano = proteinBackgroundPoints(rows, 'P12345', 'A_vs_B', 'volcano', 0.05, 1);
+  const trace = (figure: ReturnType<typeof buildVolcanoFigure>, protein = 'P12345') => {
+    const focus = focusProteinTraces(figure, protein);
+    return {x:focus.x[2],y:focus.y[2],customdata:focus.customdata[2] as unknown[][]};
+  };
+  const volcano = trace(buildVolcanoFigure(rows, 'A_vs_B', 0.05, 1, volcanoBackground, true));
   assert.deepEqual(volcano.x, [0.5, -2]);
   assert.deepEqual(volcano.y, [-Math.log10(0.02), 1]);
   assert.deepEqual(volcano.customdata.map((point) => point[1]), ['P12345_T20', 'P12345_Y30']);
 
-  const scatter = proteinBackgroundPoints(rows, 'P12345', 'A_vs_B', 'protein-site', 0.05, 1);
+  const scatter = trace(buildProteinSiteFigure(rows, 'A_vs_B', 0.05, 1, proteinSiteBackground, true).figure);
   assert.deepEqual(scatter.x, [0.4, 0.4, 0.4]);
   assert.deepEqual(scatter.y, [0.5, -1.5, 0.8]);
   assert.deepEqual(scatter.customdata.map((point) => point[1]),
     ['P12345_T20', 'P12345_Y30', 'P12345_S40']);
-  assert.deepEqual(proteinBackgroundPoints(rows, 'ABSENT', 'A_vs_B', 'volcano', 0.05, 1),
+  assert.deepEqual(trace(buildVolcanoFigure(rows, 'A_vs_B', 0.05, 1, volcanoBackground, true), 'ABSENT'),
     { x: [], y: [], customdata: [] });
-  assert.throws(() => proteinBackgroundPoints(rows, 'P12345', 'A_vs_B', 'volcano', 0.3, 1), RangeError);
 });
 
 test('N-to-C keeps measured sites without results on the baseline and hides nonexact features', () => {

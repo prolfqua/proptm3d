@@ -33,7 +33,15 @@ uv run proptm3d prepare stats --input /path/to/PTM_delivery.zip
 
 Preparation writes the root method-chooser `index.html`, each method's browser HTML/JS/CSS and static plot backgrounds, and the Parquet tables. When supplied, the positional folder is the prepared output root; no `output_3d` subfolder is added. `--input` is required and points independently to the source data. Omitting the method prepares all three methods; omitting both method and folder also selects the default folder beside the input. `bundle --in FOLDER` then builds an all-method ZIP. `serve DPA FOLDER` still serves a prepared method directly. The Python CLI does not run npm or install browser dependencies.
 
-To preview all prepared methods, run `proptm3d serve /path/to/viewer`, then open the HTTP URL printed in the terminal. Opening the root `index.html` directly shows the chooser, but the method applications require HTTP because browsers do not allow them to fetch their Parquet and compressed structure files reliably from `file://` URLs.
+To preview all prepared methods, pass the **prepared output root** to `serve`, not the input delivery folder and not the `DPA/` subfolder. It is the directory containing `index.html` and method subfolders (`DPA/`, `DPU/`, `CF-DPU/`). For the current MiMB analysis, the actual prepared root is `~/data_analysis/MiMB_ptm_pipeline_v2/proptm3d_PTM_Late_vs_Uninfect/`:
+
+```sh
+cd ~/data_analysis/MiMB_ptm_pipeline_v2
+proptm3d serve proptm3d_PTM_Late_vs_Uninfect/ --port 8001      # all methods
+proptm3d serve DPA proptm3d_PTM_Late_vs_Uninfect/ --port 8001  # DPA only
+```
+
+Port `8000` is the default; the example uses `8001` so it works while another server occupies `8000`. A second `proptm3d serve` on the same port automatically replaces a running proptm3d server that it can verify through a private local restart token. It never stops an unrelated service or an older proptm3d server without that token: in those cases it prints a short error and suggests another port. Open the HTTP URL printed in the terminal. `gsea` is a mode of `prepare`, **not** a method name for `serve`: a GSEA preparation writes GSEA tables inside each prepared DPA/DPU/CF-DPU viewer. Opening `index.html` directly shows the chooser, but the method applications require HTTP because browsers do not allow them to fetch their Parquet and compressed structure files reliably from `file://` URLs.
 
 For the current `o43037_FP24_AntjePhospho` dataset, run [the fish example](../examples/o43037_prepare_bundle.fish) from an active `.venv` to prepare and bundle DPA, DPU, and CF-DPU in one ZIP. Its paths are literal, and the ZIP refuses to overwrite an existing file.
 
@@ -43,6 +51,8 @@ For completed enrichment analysis, provide either a PTM delivery ZIP or its unpa
 uv run proptm3d prepare gsea DPA /path/to/viewer --input /path/to/PTM_delivery.zip
 # or: --input /path/to/PTM_delivery/
 ```
+
+When the output folder is omitted, `prepare gsea --input /path/to/PTM_Late_vs_Uninfect.zip` creates `/path/to/proptm3d_PTM_Late_vs_Uninfect/`. That newly created `proptm3d_...` folder is the `serve` argument; `PTM_Late_vs_Uninfect.zip` or its unpacked folder is the **input** to `prepare`, not the prepared root.
 
 `prepare stats` can also accept an unpacked delivery folder, a statistics delivery ZIP containing `PTM_statistics.h5mu`, or a completed delivery ZIP containing `PTM_results.h5mu`. When both h5mu stages are present, it uses `PTM_results.h5mu`. Run `proptm3d bundle /path/to/viewer` to bundle every prepared method behind the shared entry page. These commands need network access only while filling the preparation cache; the browser itself reads the served files.
 

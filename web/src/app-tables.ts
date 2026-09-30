@@ -1,3 +1,4 @@
+import { trackTable } from './table-data.js'
 import { TabulatorFull, type ColumnDefinition } from 'tabulator-tables'
 
 import type { DetailRow } from './detail.js'
@@ -69,7 +70,7 @@ export function createFindTable(
   const columns: ColumnDefinition[] = [
     { title: 'Gene', field: 'gene_name', frozen: true, minWidth: 105 },
     { title: 'Accession', field: 'accession', minWidth: 110 },
-    { title: 'Matching sites', field: 'matching_site_labels', minWidth: 180, visible: false,
+    { title: 'Matching sites', field: 'matching_site_labels', minWidth: 180,
       formatter: (cell) => (cell.getValue() as string[]).join(', '), tooltip: true },
     { title: 'Measured sites', field: 'measured_sites', hozAlign: 'right', sorter: 'number', minWidth: 115 },
     { title: 'Tested sites', field: 'tested_sites', hozAlign: 'right', sorter: 'number', minWidth: 105 },
@@ -93,7 +94,7 @@ export function createFindTable(
     actions.hover((row.getData() as ProteinCatalogRow).protein_Id))
   table.on('rowMouseLeave', () => actions.hover(null))
   table.on('dataFiltered', (_filters, visible) => actions.count(visible.length))
-  return table
+  return trackTable(table)
 }
 
 export function createSiteTable(
@@ -113,5 +114,5 @@ export function createSiteTable(
   }
   if (actions.leave) table.on('rowMouseLeave', actions.leave)
   table.on('tableBuilt', actions.built)
-  return table
+  return trackTable(table)
 }

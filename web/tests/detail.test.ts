@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { buildDetailRows, displayProteinDescription, selectDetailRows } from '../src/detail.js'
-import { ALL_STRUCTURES } from '../src/structural.js'
+import { buildDetailRows, displayProteinDescription } from '../src/detail.js'
 import type { ProteinDetail, SiteStructuralContext } from '../src/types.js'
 
 test('description display uses the prepared h5mu value without FASTA metadata', () => {
@@ -65,38 +64,4 @@ test('detail cutoff uses strict FDR and absolute fold-change boundaries', () => 
   assert.deepEqual(passingSites(0.05, 1), ['S10'])
   assert.deepEqual(passingSites(0.1, 1), ['S10', 'T20'])
   assert.deepEqual(passingSites(0.1, 1.5), [])
-})
-
-test('detail selection defaults to passing sites and applies the estimate type', () => {
-  const detail = {
-    sites: ['S10', 'T20', 'Y30', 'K40', 'C50']
-      .map((site) => ({ protein_Id: 'P1', site, has_measurement: true })),
-    results: [
-      { protein_Id: 'P1', site: 'S10', contrast: 'A', effect: 2, fdr: 0.01,
-        site_estimate_type: 'observed', imputed: false },
-      { protein_Id: 'P1', site: 'T20', contrast: 'A', effect: -3, fdr: 0.02,
-        site_estimate_type: 'lod_imputed', imputed: true },
-      { protein_Id: 'P1', site: 'Y30', contrast: 'A', effect: 2, fdr: 0.2,
-        site_estimate_type: 'observed', imputed: false },
-      { protein_Id: 'P1', site: 'K40', contrast: 'A', effect: 0.5, fdr: 0.01,
-        site_estimate_type: 'lod_imputed', imputed: true },
-      { protein_Id: 'P1', site: 'P60', contrast: 'A', effect: 4, fdr: 0.001,
-        site_estimate_type: 'observed', imputed: false },
-      { protein_Id: 'P1', site: 'C50', contrast: 'B', effect: 2, fdr: 0.01,
-        site_estimate_type: 'observed', imputed: false },
-    ],
-    context: [] as SiteStructuralContext[],
-  } as ProteinDetail
-  const thresholds = { fdr: 0.05, absEffect: 1 }
-  const sites = (contrast: string, estimateType: 'all' | 'observed' | 'lod_imputed', showAll: boolean) =>
-    selectDetailRows(detail, contrast, thresholds, estimateType, showAll, ALL_STRUCTURES).map((row) => row.site)
-
-  assert.deepEqual(sites('A', 'all', false), ['S10', 'T20', 'P60'])
-  assert.deepEqual(sites('A', 'observed', false), ['S10', 'P60'])
-  assert.deepEqual(sites('A', 'lod_imputed', false), ['T20'])
-  assert.deepEqual(sites('A', 'all', true), ['S10', 'T20', 'Y30', 'K40', 'C50', 'P60'])
-  assert.deepEqual(sites('A', 'observed', true), ['S10', 'Y30', 'P60'])
-  assert.deepEqual(sites('A', 'lod_imputed', true), ['T20', 'K40'])
-  assert.deepEqual(sites('B', 'all', false), ['C50'])
-  assert.deepEqual(sites('B', 'lod_imputed', false), [])
 })

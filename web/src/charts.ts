@@ -1,3 +1,4 @@
+import { validCutoffs } from './summary.js';
 import type {
   EvidencePayload,
   FeaturePayload,
@@ -7,13 +8,20 @@ import type {
   RunManifest,
   SiteIndexRow,
   SiteResult,
-  Thresholds,
 } from './types';
 import { EXPOSURE_COLORS, PLDDT_COLORS, REGION_COLORS } from './structure-colors.js';
 
 export interface FigureSpec {
   data: Record<string, unknown>[];
   layout: Record<string, unknown>;
+}
+
+/** Count against C's full selection, including sites absent from the statistical index. */
+export function plotSelectionNote(figure: FigureSpec, selectedCount: number, contrast: string): string {
+  const plotted = figure.data.reduce((n, trace) => n + (trace.x as unknown[]).length, 0);
+  const missing = selectedCount - plotted;
+  return `${selectedCount.toLocaleString()} selected sites · ${plotted.toLocaleString()} plotted in ${contrast}.`
+    + (missing > 0 ? ` ${missing.toLocaleString()} lack the required values; retained in the protein table, not plotted at zero.` : '');
 }
 
 export interface SitePoint {
@@ -30,12 +38,6 @@ export interface ScatterFigure {
 export interface ProteinTraceUpdate {
   x: unknown[][];
   y: unknown[][];
-  customdata: unknown[][];
-}
-
-export interface ProteinBackgroundPoints {
-  x: number[];
-  y: number[];
   customdata: unknown[][];
 }
 
@@ -116,16 +118,6 @@ function baseLayout(title: string, height: number): Record<string, unknown> {
   };
 }
 
-/** The volcano and protein/site scatter colour at most sites with FDR < 0.25 and |log2FC| > 1. */
-export function plotThresholds(thresholds: Thresholds): Thresholds {
-  return { fdr: Math.min(thresholds.fdr, 0.25), absEffect: Math.max(thresholds.absEffect, 1) };
-}
-
-export function validThresholds(fdrCutoff: number, fcCutoff: number): boolean {
-  return Number.isFinite(fdrCutoff) && fdrCutoff > 0 && fdrCutoff <= 0.25
-    && Number.isFinite(fcCutoff) && fcCutoff >= 1;
-}
-
 function backgroundLayout(background: PlotBackground): Record<string, unknown> {
   return {
     source: background.file,
@@ -199,7 +191,7 @@ function nonPassingTrace(
     : [];
   return {
     type: 'scattergl', mode: 'markers',
-    name: highlightIntersection ? `Selected, not passing (${points.length.toLocaleString()})` : 'Other sites',
+    name: highlightIntersection ? `Selected, outside thresholds (${points.length.toLocaleString()})` : 'Other sites',
     showlegend: highlightIntersection && points.length > 0,
     x: points.map(x),
     y: points.map(y),
@@ -214,33 +206,6 @@ function nonPassingTrace(
   };
 }
 
-/** Non-passing sites for the selected protein, shown when the all-protein PNG is hidden. */
-export function proteinBackgroundPoints(
-  rows: readonly SiteIndexRow[],
-  proteinId: string,
-  contrast: string,
-  chart: 'volcano' | 'protein-site',
-  fdrCutoff: number,
-  fcCutoff: number,
-): ProteinBackgroundPoints {
-  if (!validThresholds(fdrCutoff, fcCutoff)) throw new RangeError('FDR must be ≤ 0.25 and |log2FC| must be ≥ 1.');
-  const points: ProteinBackgroundPoints = { x: [], y: [], customdata: [] };
-  for (const row of rows) {
-    if (row.protein_Id !== proteinId || row.contrast !== contrast || passes(row, fdrCutoff, fcCutoff)) continue;
-    const x = chart === 'volcano' ? row.effect : row.protein_fc;
-    const y = chart === 'volcano'
-      ? finite(row.fdr) ? -Math.log10(Math.max(row.fdr, 1e-300)) : null
-      : row.original_site_fc;
-    if (!finite(x) || !finite(y)) continue;
-    points.x.push(x);
-    points.y.push(y);
-    points.customdata.push([
-      row.protein_Id, row.site, row.contrast, row.gene_name ?? row.protein_Id, row.effect, row.fdr,
-    ]);
-  }
-  return points;
-}
-
 /** Dense black sites are precomputed; focused non-passing sites gain an interactive trace on hover. */
 export function buildVolcanoFigure(
   rows: readonly SiteIndexRow[],
@@ -250,7 +215,7 @@ export function buildVolcanoFigure(
   background: PlotBackground,
   highlightIntersection = false,
 ): FigureSpec {
-  if (!validThresholds(fdrCutoff, fcCutoff)) throw new RangeError('FDR must be ≤ 0.25 and |log2FC| must be ≥ 1.');
+  if (!validCutoffs({fdr:fdrCutoff,absEffect:fcCutoff})) throw new RangeError('FDR must be in (0, 1] and |log2FC| must be ≥ 0.');
   const scoped = rows.filter((row) => row.contrast === contrast);
   const plotted = scoped.filter((row) => finite(row.effect) && finite(row.fdr));
   const traces = scatterTraces(
@@ -303,7 +268,7 @@ export function buildProteinSiteFigure(
   background: PlotBackground,
   highlightIntersection = false,
 ): ScatterFigure {
-  if (!validThresholds(fdrCutoff, fcCutoff)) throw new RangeError('FDR must be ≤ 0.25 and |log2FC| must be ≥ 1.');
+  if (!validCutoffs({fdr:fdrCutoff,absEffect:fcCutoff})) throw new RangeError('FDR must be in (0, 1] and |log2FC| must be ≥ 0.');
   const scoped = rows.filter((row) => row.contrast === contrast);
   const missingCount = scoped.filter((row) => !finite(row.protein_fc) || !finite(row.original_site_fc)).length;
   const layout = baseLayout('Protein versus original site effect', 390);

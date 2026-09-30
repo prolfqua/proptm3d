@@ -27,15 +27,6 @@ export function siteStructure(context: SiteStructuralContext): SiteStructure {
   }
 }
 
-export function isStructurallyFiltered(filters: StructuralFilters): boolean {
-  return filters.exposure !== 'all' || filters.region !== 'all'
-}
-
-export function passesStructuralFilters(structure: SiteStructure, filters: StructuralFilters): boolean {
-  return (filters.exposure === 'all' || structure.exposure === filters.exposure)
-    && (filters.region === 'all' || structure.region === filters.region)
-}
-
 const EXPOSURE_LABELS: Record<ExposureClass, string> = {
   exposed: 'Exposed', buried: 'Buried',
   unavailable: 'Unavailable', residue_mismatch: 'Residue mismatch',

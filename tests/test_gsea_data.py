@@ -14,6 +14,7 @@ def _document(data=None):
     document = data or {
         "data": {
             "a_vs_b": {
+                "gene_pool": {"AAAA": {"rank": 2}, "BBBB": {"rank": 1}},
                 "categories": {
                     "KinaseLib": {
                         "terms": [
@@ -35,7 +36,7 @@ def _document(data=None):
                             "hit_indices": {"ERK2": [1, 2]},
                         },
                     }
-                }
+                },
             }
         }
     }
@@ -88,10 +89,10 @@ def test_gsea_terms_are_typed_and_keep_full_and_leading_members(tmp_path):
     ).to_dicts() == [
         {
             "term_id": "ERK2",
-            "rank_indices": [0, 1, 2],
+            "rank_indices": [1, 2, 3],
             "running_scores": [0.0, -0.4, -1.2],
             "hit_indices": [1, 2],
-            "hit_scores": [-0.4, -1.2],
+            "hit_scores": [0.0, -0.4],
         }
     ]
 
@@ -166,8 +167,14 @@ def test_running_curves_are_compacted_with_exact_rank_and_hit_coordinates():
     row = gsea_data._compact_curve({"running_scores": scores, "hit_indices": [17, 2999]})
 
     assert len(row["running_scores"]) <= 2000
-    assert row["rank_indices"][0] == 0
-    assert row["rank_indices"][-1] == 2999
-    assert scores.index(min(scores)) in row["rank_indices"]
-    assert scores.index(max(scores)) in row["rank_indices"]
-    assert row["hit_scores"] == [scores[17], scores[2999]]
+    assert row["rank_indices"][0] == 1
+    assert row["rank_indices"][-1] == 3000
+    assert scores.index(min(scores)) + 1 in row["rank_indices"]
+    assert scores.index(max(scores)) + 1 in row["rank_indices"]
+    assert row["hit_scores"] == [scores[16], scores[2998]]
+
+
+@pytest.mark.parametrize("rank", [0, -1, 4])
+def test_out_of_range_gsea_hits_fail_instead_of_inventing_scores(rank):
+    with pytest.raises(ValueError, match="one-based"):
+        gsea_data._compact_curve({"running_scores": [0.1, 0.2, 0.3], "hit_indices": [rank]})

@@ -278,6 +278,7 @@ export interface ProteinDetail extends ProteinPayload {
 export interface AppData {
   run: RunManifest;
   proteins: ProteinCatalogRow[];
+  sites: Array<MeasuredSite & { structure: SiteStructure }>;
   siteIndex: SiteIndexRow[];
 }
 

@@ -1,5 +1,5 @@
-import { isSignificant } from "./summary.js";
-import type { SiteIndexRow, Thresholds } from "./types.js";
+import { isFiniteNumber } from "./summary.js";
+import type { SiteIndexRow } from "./types.js";
 
 export const AMINO_ACIDS = [
   "A", "C", "D", "E", "F", "G", "H", "I", "K", "L",
@@ -59,13 +59,12 @@ function frequencyMatrix(windows: string[]): LogoMatrix | null {
 export function computeLogos(
   rows: SiteIndexRow[],
   contrast: string,
-  thresholds: Thresholds,
 ): LogoData {
   const upWindows: string[] = [];
   const downWindows: string[] = [];
   let invalidWindowCount = 0;
   for (const row of rows) {
-    if (row.contrast !== contrast || !isSignificant(row, thresholds)) continue;
+    if (row.contrast !== contrast || (!isFiniteNumber(row.effect) || row.effect === 0)) continue;
     const window = centeredWindow(row);
     if (window === null) {
       invalidWindowCount++;

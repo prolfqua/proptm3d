@@ -97,7 +97,7 @@ test("logos use centered windows and report missing windows separately", () => {
     row({ site: "invalid", sequence_window: "AAAAAAATAAAAAAA" }),
     row({ site: "other contrast", contrast: "B" }),
   ];
-  const logos = computeLogos(rows, "A", { fdr: 0.05, absEffect: 1 });
+  const logos = computeLogos(rows, "A");
 
   assert.equal(logos.upCount, 2);
   assert.equal(logos.downCount, 1);
@@ -111,7 +111,7 @@ test("logos use centered windows and report missing windows separately", () => {
   assert.equal(logos.up?.[7].position, 0);
   assert.equal(logos.up?.[7].frequencies.S, 1);
 
-  const oneDirection = computeLogos(rows.slice(0, 2), "A", { fdr: 0.05, absEffect: 1 });
+  const oneDirection = computeLogos(rows.slice(0, 2), "A");
   assert.equal(oneDirection.down, null);
   assert.equal(oneDirection.difference, null);
 });
