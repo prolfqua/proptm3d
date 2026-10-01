@@ -4,6 +4,7 @@ import { html } from 'lit'
 import { buildDetailRows } from '../src/detail.js'
 import { FilterModel, type EnrichmentInput } from '../src/filtering.js'
 import { FilterPanel, renderFilters } from '../src/filter-panel.js'
+import { gseaProfile, statsProfile, profileFor } from '../src/browser-profile.js'
 import { gseaSiteTableRows } from '../src/gsea.js'
 import { computeLogos } from '../src/logo.js'
 import { ALL_STRUCTURES, UNAVAILABLE_STRUCTURE } from '../src/structural.js'
@@ -26,7 +27,7 @@ const enrichment: EnrichmentInput = {payload:null,fdr:0.05,leading:false,
 const emptyPayload={sequenceSets:[],memberships:[],curves:[]} as unknown as GseaPayload
 
 test('filter collapse keeps context navigation and the current selection summary visible', () => {
-  const view=renderFilters({a:html``,b:html``,c:html``},html``)
+  const view=renderFilters({a:html``,b:html``,c:html``},html``,gseaProfile)
   const markup=view.strings.join('')
   assert.ok(markup.indexOf('class="filter-navigation"')<markup.indexOf('id="toggle-filters"'))
   assert.ok(markup.indexOf('id="filter-summary"')<markup.indexOf('id="filter-body"'))
@@ -35,7 +36,7 @@ test('filter collapse keeps context navigation and the current selection summary
   const {panel,el}=panelFixture()
   const summary=el('#filter-summary').textContent
   assert.match(summary,/Filtering by A/)
-  assert.match(summary,/1 \/ 4 sites selected · A: all · C: all/)
+  assert.match(summary,/1 \/ 4 sites selected · A: all · C: all \(union\)/)
   el('#filter-body').hidden=false
   el('#toggle-filters').onclick()
   assert.equal(el('#filter-body').hidden,true)
@@ -112,7 +113,7 @@ test('estimate is a separate operand and includes no missing estimates; All disa
 })
 
 // A minimal DOM surface exercises actual panel events without loading Plotly in Node.
-function panelFixture() {
+function panelFixture(profile=gseaProfile) {
   const elements = new Map<string, any>()
   const el = (id:string): any => {
     if (!elements.has(id)) elements.set(id,{hidden:true,disabled:false,dataset:{},classList:{toggle(){}},setAttribute(){}})
@@ -130,11 +131,32 @@ function panelFixture() {
   })
   const root = {querySelector:el,querySelectorAll:(query:string)=>query==='[data-filter-branch]'?buttons
     : query==='[data-upset-degree]'?degrees:query.startsWith('#fdr-cutoff')?query.split(', ').map(el):[]}
-  const panel = new FilterPanel(root as unknown as HTMLElement,new FilterModel(),()=>{},message=>assert.fail(message))
+  const panel = new FilterPanel(root as unknown as HTMLElement,new FilterModel(),()=>{},
+    message=>assert.fail(message),profile)
   const update = (next=enrichment, cutoff=thresholds)=>panel.update(data,'early',cutoff,'all',ALL_STRUCTURES,next)
   update()
   return {panel,el,update,enrichment}
 }
+
+test('prepared capabilities select Stats or GSEA plugins with distinct UpSet compositions', () => {
+  assert.equal(profileFor(data.run),statsProfile)
+  const withGsea={...data.run,gsea:{results:[{id:'kinase'}]}} as AppData['run']
+  assert.equal(profileFor(withGsea),gseaProfile)
+  assert.deepEqual(statsProfile.branches,['a','c'])
+  assert.deepEqual(gseaProfile.branches,['b','a','c'])
+  assert.equal(statsProfile.enrichment,undefined)
+  assert.ok(gseaProfile.enrichment)
+  const statsView=renderFilters({a:html``,b:html``,c:html``},html``,statsProfile)
+  const gseaView=renderFilters({a:html``,b:html``,c:html``},html``,gseaProfile)
+  assert.equal((statsView.values.find(Array.isArray) as unknown[]).length,2)
+  assert.equal((gseaView.values.find(Array.isArray) as unknown[]).length,3)
+  assert.match(statsProfile.filterNotice,/A selects significant sites/)
+  assert.doesNotMatch(statsProfile.filterNotice,/\bB\b|GSEA/)
+  const {panel,el}=panelFixture(statsProfile)
+  assert.match(el('#filter-summary').textContent,/A: all · C: all \(union\)/)
+  assert.equal(panel.model.includeB,false)
+  assert.deepEqual(Object.keys((panel as unknown as {plots:object}).plots).sort(),['a','c'])
+})
 
 test('upstream edits reset C, preserve empty A, and show-all suspends only filter editing', () => {
   const {panel,el,update} = panelFixture()
@@ -159,7 +181,7 @@ test('upstream edits reset C, preserve empty A, and show-all suspends only filte
   assert.deepEqual(panel.state.a,{kind:'set',id:'early'})
 })
 
-test('loading/error/empty are distinct, B Off stays usable and stats-only omits B', () => {
+test('loading/error/empty are distinct, and B Off stays usable', () => {
   const {panel,el}=panelFixture()
   assert.equal(el('#filter-b-card').hidden,true)
   assert.equal(panel.model.select('b',{kind:'all'}),false)

@@ -1,18 +1,21 @@
 import { html, render, type TemplateResult } from 'lit'
-import { FilterModel, relevantCombinedIntersections, type EnrichmentInput, type FilterBranch } from './filtering.js'
+import { FilterModel, type EnrichmentInput, type FilterBranch } from './filtering.js'
+import { filterStatus } from './filter-status.js'
 import { displayedUpSet, intersectionDegrees, rankedUpSetDisplay, resolveSelection, selectionLabel,
   UPSET_PAGE_SIZE, type SetSelection } from './upset-model.js'
 import { UpSetPlot } from './upset.js'
 import type { AppData, Thresholds } from './types.js'
 import type { EstimateType } from './detail.js'
 import type { StructuralFilters } from './structural.js'
+import type { BrowserProfile } from './browser-profile.js'
 
 type Branch = FilterBranch
 
-export function renderFilters(controls: Record<Branch,TemplateResult>, navigation: TemplateResult): TemplateResult {
-  return html`<section class="filter-navigation" aria-label="Display, GSEA and protein navigation">
+export function renderFilters(controls: Record<Branch,TemplateResult>, navigation: TemplateResult,
+  profile: BrowserProfile): TemplateResult {
+  return html`<section class="filter-navigation" aria-label="Display and protein navigation">
     ${navigation}
-    <span class="subtle">A limits the contrast choices. With B active, changing contrast reloads B; sequence-set focus and protein search only navigate.</span>
+    <span class="subtle">${profile.navigationHint}</span>
   </section>
   <section class="filter-panel" aria-label="Shared site filtering">
     <div id="filter-state-bar" class="filter-state-bar">
@@ -20,8 +23,8 @@ export function renderFilters(controls: Record<Branch,TemplateResult>, navigatio
       <span id="filter-summary" class="filter-summary" role="status">Loading filter selection…</span>
     </div>
     <div id="filter-body">
-      <div id="filter-upset-panel" class="filter-upsets">
-      ${(['b','a','c'] as const).map(branch=>html`<div id="filter-${branch}-card" class="card filter-upset-card">
+      <div id="filter-upset-panel" class="filter-upsets ${profile.id}">
+      ${profile.branches.map(branch=>html`<div id="filter-${branch}-card" class="card filter-upset-card">
         <div class="card-title"><span>${{a:'A · Significant-site intersections',b:'B · Significant sequence_set intersections',c:'C · Filter intersections'}[branch]}</span><small id="filter-${branch}-count"></small></div>
         <div id="filter-${branch}-control" class="filter-branch-control ${branch==='c'?'filter-c-control':''}">
           ${branch==='c'?html`<strong>C selection</strong><span id="filter-c-label"></span>
@@ -30,11 +33,11 @@ export function renderFilters(controls: Record<Branch,TemplateResult>, navigatio
             <button data-filter-branch=${branch} data-filter-mode="off">Off</button>
             <button data-filter-branch=${branch} data-filter-mode="all">All</button>
             <span id="filter-${branch}-label"></span>`}
-          ${branch==='c'?html`<label class="show-all-sites" title="Temporarily bypass A, B and C without losing their selections"><input id="show-all-sites" type="checkbox"> Show all sites</label>`:''}
+          ${branch==='c'?html`<label class="show-all-sites" title=${`Temporarily bypass ${profile.branches.map(b=>b.toUpperCase()).join(', ')} without losing their selections`}><input id="show-all-sites" type="checkbox"> Show all sites</label>`:''}
         </div>
         <div class="upset-controls">
           ${controls[branch]}
-          ${branch==='c'?html`<span class="subtle combined-preview-note">C All is the union of enabled sets, or all measured sites when none is enabled. Columns show sites passing all active property choices and A or B when enabled.</span>`:''}
+          ${branch==='c'?html`<span class="subtle combined-preview-note">C All is the union of enabled sets. While filters are active, its exact columns partition that union and add up to the selected-site total. With no enabled sets, all measured sites are selected.</span>`:''}
           ${branch==='c'?'':html`<div class="control"><label for="filter-${branch}-degree">Dots per intersection</label>
             <select id="filter-${branch}-degree" data-upset-degree=${branch} aria-describedby="filter-${branch}-degree-help"></select></div>
           <span id="filter-${branch}-degree-help" class="subtle">Display only · 1 dot = exclusive to one set</span>`}
@@ -44,7 +47,7 @@ export function renderFilters(controls: Record<Branch,TemplateResult>, navigatio
         ${branch==='c'?'':html`<div class="upset-page"><button data-upset-page=${branch} data-direction="-1">Previous</button><span id="filter-${branch}-page"></span><button data-upset-page=${branch} data-direction="1">Next</button></div>`}
       </div>`)}
       </div>
-      <p id="filter-notice" class="metric-note" role="status">A limits B's GSEA contrast choices; their site selections combine in C. C All is inclusive union. Bar clicks select sites and focus the UpSet display; View All changes only the plot.</p>
+      <p id="filter-notice" class="metric-note" role="status">${profile.filterNotice}</p>
     </div>
   </section>`
 }
@@ -53,11 +56,11 @@ export function renderFilters(controls: Record<Branch,TemplateResult>, navigatio
 export class FilterPanel {
   private pages = {a:0,b:0}
   private degrees = {a:0,b:0}
-  private plots: Record<Branch,UpSetPlot>
+  private plots: Partial<Record<Branch,UpSetPlot>>
   private sequenceMatches: ReadonlySet<string> | null = null
   private bContrast = ''
   private bResult = ''
-  private estimateContrast = ''
+  private displayedContrast = ''
   private rendering = false
   private pending = false
 
@@ -66,14 +69,14 @@ export class FilterPanel {
   get siteKeys() { return this.model.siteKeys }
 
   constructor(private root: HTMLElement, readonly model: FilterModel, private changed: () => void,
-    private error: (message:string)=>void) {
-    this.plots=Object.fromEntries((['a','b','c'] as const).map(branch=>[branch,new UpSetPlot(
+    private error: (message:string)=>void, private profile: BrowserProfile) {
+    this.plots=Object.fromEntries(profile.branches.map(branch=>[branch,new UpSetPlot(
       this.el<HTMLDivElement>(`#filter-${branch}-plot`),`${branch.toUpperCase()} UpSet display`,
       selection=>this.select(branch,selection),()=>{
         if (branch!=='c') this.pages[branch]=0
         void this.draw()
       },
-    )])) as Record<Branch,UpSetPlot>
+    )])) as Partial<Record<Branch,UpSetPlot>>
     this.el<HTMLButtonElement>('#toggle-filters').onclick=()=>{
       const body=this.el('#filter-body')
       body.hidden=!body.hidden
@@ -106,6 +109,7 @@ export class FilterPanel {
   private el<T extends HTMLElement>(selector:string): T { return this.root.querySelector<T>(selector)! }
 
   findSequenceSets(matches: ReadonlySet<string> | null): void {
+    if (this.profile.id!=='gsea') return
     if (matches===this.sequenceMatches || (matches!==null && this.sequenceMatches!==null
       && matches.size===this.sequenceMatches.size && [...matches].every(id=>this.sequenceMatches!.has(id)))) return
     this.sequenceMatches=matches
@@ -121,7 +125,7 @@ export class FilterPanel {
     this.bContrast=enrichment.context.split('\u0000')[1]??''
     const resultId=enrichment.context.split('\u0000')[0]
     this.bResult=data.run.gsea?.results.find(result=>result.id===resultId)?.label??resultId
-    this.estimateContrast=contrast
+    this.displayedContrast=contrast
     const result=this.model.update(data,contrast,thresholds,estimate,structural,enrichment)
     if (!result.changed) return
     if (result.notice) this.el('#filter-notice').textContent=result.notice
@@ -131,7 +135,7 @@ export class FilterPanel {
 
   private select(branch:Branch, selection:SetSelection): void {
     if (!this.model.select(branch,selection)) return
-    if (selection.kind==='set'||selection.kind==='intersection') this.plots[branch].focusSelection()
+    if (selection.kind==='set'||selection.kind==='intersection') this.plots[branch]?.focusSelection()
     if (branch!=='c') this.pages[branch]=0
     this.el('#filter-notice').textContent=branch==='c'
       ? 'C controls the final site selection. Clearing it returns to union without resetting A or B.'
@@ -140,7 +144,7 @@ export class FilterPanel {
   }
 
   private renderState(): void {
-    for (const branch of ['a','b','c'] as const) {
+    for (const branch of this.profile.branches) {
       const model=this.model.get(branch),selection=this.state[branch]
       const count=branch==='c'?this.siteKeys.size:(resolveSelection(model,selection)?.size??this.model.universeSize)
       const label=this.el(`#filter-${branch}-label`)
@@ -149,32 +153,17 @@ export class FilterPanel {
         : `${selectionLabel(model,selection)} · ${count.toLocaleString()} sites`
       label.title=label.textContent
     }
-    const siteCount=this.siteKeys.size.toLocaleString(), total=this.model.universeSize.toLocaleString()
-    const selected=this.state.showAll?`Showing all ${total} measured sites (filters paused)`
-      :`${siteCount} / ${total} sites selected`
-    const branches=(['a','b','c'] as const).filter(branch=>branch!=='b'||this.model.includeB)
-      .map(branch=>`${branch.toUpperCase()}: ${selectionLabel(this.model.get(branch),this.state[branch])}`)
-    const properties=this.model.properties.filter(set=>set.enabled)
-      .map(set=>`${set.id}: ${set.label.slice(set.id.length+1).replaceAll('_',' ')}`)
-    const active=this.state.showAll?[]:[
-      ...(this.state.a.kind==='off'?[]:['A']),
-      ...(this.model.includeB&&this.state.b.kind!=='off'?['B']:[]),
-      ...(this.state.c.kind!=='all'||properties.length?['C']:[]),
-    ]
+    const status=filterStatus(this.model,this.profile.branches,this.displayedContrast,
+      this.bResult,this.bContrast)
     const summary=this.el('#filter-summary')
-    const activity=this.state.showAll?'Filters paused'
-      :active.length?`Filtering by ${active.join(' + ')}`:'No active filters'
-    summary.textContent=`${activity} · ${selected} · ${[...branches,
-      ...(this.model.includeB&&this.state.b.kind!=='off'&&this.bContrast
-        ? [`B filter: ${this.bResult} · ${this.bContrast}`]:[]),...properties,
-      ...(this.model.properties.some(set=>set.id==='estimate'&&set.enabled)
-        ? [`Estimate contrast: ${this.estimateContrast}`]:[])].join(' · ')}`
+    summary.textContent=status.text
     summary.title=summary.textContent
-    this.el('#filter-state-bar').classList.toggle('has-active-filters',active.length>0)
-    this.el('#filter-b-control').hidden=this.el('#filter-b-card').hidden=!this.model.includeB
-    this.el('#filter-upset-panel').classList.toggle('stats-only',!this.model.includeB)
+    this.el('#filter-state-bar').classList.toggle('has-active-filters',status.active)
+    if (this.profile.id==='gsea') {
+      this.el('#filter-b-control').hidden=this.el('#filter-b-card').hidden=!this.model.includeB
+    }
     for (const control of this.root.querySelectorAll<HTMLInputElement | HTMLSelectElement>(
-      '#fdr-cutoff, #effect-cutoff, #estimate-type, #estimate-contrast, #exposure-filter, #region-filter, #gsea-fdr, #leading-edge-only')) {
+      '#fdr-cutoff, #effect-cutoff, #estimate-type, #exposure-filter, #region-filter, #gsea-fdr, #leading-edge-only')) {
       control.disabled=this.state.showAll
     }
     for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-filter-branch]')) {
@@ -198,27 +187,27 @@ export class FilterPanel {
     try {
       while (this.pending) {
         this.pending=false
-        for (const branch of ['a','b','c'] as const) {
+        for (const branch of this.profile.branches) {
           if (branch==='b'&&!this.model.includeB) continue
-          const source=branch==='c'?relevantCombinedIntersections(this.model.get('c')):this.model.get(branch)
+          const source=this.model.get(branch)
           let degree=0, page=0
           if (branch!=='c') {
             const searched=branch==='b'?rankedUpSetDisplay(source,0,this.sequenceMatches):source
-            const degrees=intersectionDegrees(searched,this.state[branch],this.plots[branch].mode)
+            const degrees=intersectionDegrees(searched,this.state[branch],this.plots[branch]!.mode)
             if (this.degrees[branch] && !degrees.includes(this.degrees[branch])) {
               this.degrees[branch]=0; this.pages[branch]=0
             }
             degree=this.degrees[branch]
           }
           const model=branch==='b'?rankedUpSetDisplay(source,degree,this.sequenceMatches):source
-          const displayed=displayedUpSet(model,this.state[branch],this.plots[branch].mode,degree)
+          const displayed=displayedUpSet(model,this.state[branch],this.plots[branch]!.mode,degree)
           const activeSets=model.sets.filter(s=>s.enabled).length
           const hasSelection=['set','intersection'].includes(this.state[branch].kind)
-          const focused=this.plots[branch].mode==='selected' && hasSelection
+          const focused=this.plots[branch]!.mode==='selected' && hasSelection
           this.el(`#filter-${branch}-count`).textContent=branch==='b'&&!this.model.enrichmentReady?this.model.enrichmentStatus:
             `${activeSets} active set${activeSets===1?'':'s'}${focused?` · ${displayed.sets.length} rows / ${displayed.intersections.length} columns shown`:branch==='c'?` · ${displayed.intersections.length} shown`:''}${branch==='b'&&this.sequenceMatches!==null?` · ${this.sequenceMatches.size} found`:''}`
           if (branch!=='c') {
-            const degrees=intersectionDegrees(model,this.state[branch],this.plots[branch].mode)
+            const degrees=intersectionDegrees(model,this.state[branch],this.plots[branch]!.mode)
             const count=displayed.intersections.length
             const pages=Math.max(1,Math.ceil(count/UPSET_PAGE_SIZE))
             const control=this.el<HTMLSelectElement>(`#filter-${branch}-degree`)
@@ -232,7 +221,7 @@ export class FilterPanel {
               button.disabled=Number(button.dataset.direction)<0?page===0:page>=pages-1
             }
           }
-          await this.plots[branch].render(model,this.state[branch],page,branch==='a',degree,this.state.showAll)
+          await this.plots[branch]!.render(model,this.state[branch],page,branch==='a',degree,this.state.showAll)
         }
       }
     } catch(error) {this.error(error instanceof Error?error.message:String(error))}

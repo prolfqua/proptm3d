@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { availableEnrichmentScopes, resolveEnrichmentContext } from '../src/gsea.js'
-import { contrastsAllowedByA } from '../src/filtering.js'
+import { chooseDisplayedContrast, contrastsAllowedByA } from '../src/filtering.js'
 import type { RunManifest } from '../src/types.js'
 
 const files={sequence_sets_parquet:'sets',memberships_parquet:'members',curves_parquet:'curves'}
@@ -19,9 +19,9 @@ test('B results and contrast choices are restricted to A-plausible contexts', ()
 
 test('a single A contrast automatically chooses its compatible B result and payload context', () => {
   const allowed=contrastsAllowedByA(run.contrasts,{kind:'set',id:'early'})
-  const context=resolveEnrichmentContext(run,allowed,'r2','interaction')
+  const upper=chooseDisplayedContrast(allowed,'interaction')
+  const context=resolveEnrichmentContext(run,allowed,'r2',upper)
   assert.deepEqual(context.scopes.map(scope=>scope.result.id),['r1'])
-  assert.deepEqual(context.contrasts,['early'])
   assert.equal(context.resultId,'r1')
   assert.equal(context.contrast,'early')
 })
@@ -29,9 +29,11 @@ test('a single A contrast automatically chooses its compatible B result and payl
 test('multiple A contrasts keep one compatible B context until the user switches it', () => {
   const allowed=contrastsAllowedByA(run.contrasts,{kind:'intersection',ids:['late','interaction']})
   const context=resolveEnrichmentContext(run,allowed,'r2','interaction')
-  assert.deepEqual(context.contrasts,['late','interaction'])
+  assert.deepEqual(context.scopes.map(scope=>scope.result.id),['r2'])
   assert.equal(context.contrast,'interaction')
   assert.equal(resolveEnrichmentContext(run,allowed,'r2','late').contrast,'late')
-  assert.equal(resolveEnrichmentContext(run,['early'],'r2','interaction').contrast,'early')
-  assert.deepEqual(resolveEnrichmentContext(run,[],'r2','interaction').contrasts,[])
+  assert.deepEqual(resolveEnrichmentContext(run,allowed,'r2','late').scopes.map(scope=>scope.result.id),
+    ['r1','r2'])
+  assert.equal(resolveEnrichmentContext(run,['early'],'r2','interaction').resultId,'')
+  assert.deepEqual(resolveEnrichmentContext(run,[],'r2','interaction').scopes,[])
 })

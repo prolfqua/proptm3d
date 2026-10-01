@@ -11,14 +11,13 @@ export function availableEnrichmentScopes(run: RunManifest, allowed: readonly st
   })).filter(scope=>scope.contrasts.length>0)
 }
 
-/** Preserve the current single-contrast context when possible, otherwise choose the first permitted one. */
+/** Choose a GSEA result for the shared upper contrast; never silently switch contrasts. */
 export function resolveEnrichmentContext(run: RunManifest, allowed: readonly string[],
   currentResult: string, currentContrast: string) {
   const scopes=availableEnrichmentScopes(run,allowed)
+    .filter(scope=>scope.contrasts.includes(currentContrast))
   const chosen=scopes.find(({result})=>result.id===currentResult)??scopes[0]
-  const contrasts=chosen?.contrasts??[]
-  return {scopes,contrasts,resultId:chosen?.result.id??'',
-    contrast:contrasts.includes(currentContrast)?currentContrast:contrasts[0]??''}
+  return {scopes,resultId:chosen?.result.id??'',contrast:currentContrast}
 }
 
 export function sequenceSetKey(source: string, sequenceSet: string): string {

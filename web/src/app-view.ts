@@ -1,7 +1,7 @@
 import { html, type TemplateResult } from 'lit'
 import { renderFilters } from './filter-panel.js'
-
-import { renderGseaControls, renderGseaFindPanel, renderGseaNavigation, type GseaViewActions } from './gsea-view.js'
+import type { BrowserProfile } from './browser-profile.js'
+import type { GseaViewActions } from './gsea-view.js'
 
 export type MainView = 'find' | 'protein' | 'abundance'
 export type FindView = 'all' | 'single' | 'sequlogos' | 'gsea'
@@ -12,7 +12,6 @@ export interface AppViewActions extends GseaViewActions {
   changeThresholds: () => void
   changeDisplayedContrast: (event: Event) => void
   changeEstimateType: (event: Event) => void
-  changeEstimateContrast: (event: Event) => void
   changeStructuralFilters: () => void
   refreshSummary: () => void
   showMain: (view: MainView) => void
@@ -21,7 +20,7 @@ export interface AppViewActions extends GseaViewActions {
   changeStructureStyle: () => void
 }
 
-export function renderApp(actions: AppViewActions): TemplateResult {
+export function renderApp(actions: AppViewActions, profile: BrowserProfile): TemplateResult {
   return html`
     <header class="masthead">
       <div class="brand"><div class="brand-mark">3D</div><div><h1>proptm3d</h1><p>Phosphosite structure explorer</p></div></div>
@@ -40,31 +39,21 @@ export function renderApp(actions: AppViewActions): TemplateResult {
         <dt>FDR and |log2FC|</dt><dd>A site passes only when FDR is strictly below the selected cutoff and absolute log2 fold change is strictly above the selected cutoff. These filters do not change the underlying abundance values.</dd>
         <dt>Plot selection colors</dt><dd>Red/blue points are selected and pass the site thresholds in the contrast context. Orange points are selected but outside those thresholds here. Sites without plot coordinates stay in the protein table; counts below each plot report omissions instead of placing missing values at zero.</dd>
         <dt>UpSet intersections</dt>
-        <dd>
-          A compares significant sites across contrasts and limits B's GSEA contrast choices. B loads one contrast
-          and compares its eligible sequence_sets. Set-size bars select
-          whole sets and columns select exact intersections. C defaults to their union with enabled estimate and
-          structural filters. Off disables a filter; All includes its union. Show all sites suspends the hierarchy.
-          In A and B, Dots per intersection limits the displayed columns only: one dot means exclusive
-          to one set, two dots means shared by exactly two sets. Whole-set bars still include shared sites.
-          In B, Find sequence set brings matching rows and their intersections into view without changing
-          filter membership. With a dot count selected, B ranks rows by their largest matching intersection.
-        </dd>
+        <dd>${profile.guideUpSet}</dd>
       </dl>
     </aside>
     ${renderFilters({
       a: html`<div class="control threshold"><label for="fdr-cutoff">Site FDR &lt;</label><input id="fdr-cutoff" type="number" min="0" max="1" step="0.01" value="0.05" @input=${actions.changeThresholds} /></div>
         <div class="control threshold"><label for="effect-cutoff">|log2FC| &gt;</label><input id="effect-cutoff" type="number" min="0" step="0.1" value="1" @input=${actions.changeThresholds} /></div>`,
-      b: renderGseaControls(actions),
-      c: html`<div class="control estimate"><label for="estimate-type">Estimate</label><select id="estimate-type" @change=${actions.changeEstimateType}><option value="all">All</option><option value="observed">Observed</option><option value="lod_imputed">LOD imputed</option></select></div>
-        <div class="control estimate-contrast"><label for="estimate-contrast">Estimate contrast</label><select id="estimate-contrast" title="C uses this contrast for Estimate; the upper contrast controls plots, detail and B." @change=${actions.changeEstimateContrast}></select></div>
+      b: profile.enrichment?.renderFilterControls(actions) ?? html``,
+      c: html`<div class="control estimate"><label for="estimate-type">Estimate · upper contrast</label><select id="estimate-type" title="When enabled, Estimate uses the contrast selected above." @change=${actions.changeEstimateType}><option value="all">All</option><option value="observed">Observed</option><option value="lod_imputed">LOD imputed</option></select></div>
         <div class="control structural"><label for="exposure-filter">Exposure</label><select id="exposure-filter" title="Exposure sets require matched AlphaFold context. All disables this operand; other C operands may still select unmatched sites." @change=${actions.changeStructuralFilters}><option value="all">All</option><option value="exposed">Exposed</option><option value="buried">Buried</option></select></div>
         <div class="control structural"><label for="region-filter">Region</label><select id="region-filter" title="Region sets require matched AlphaFold context. All disables this operand; other C operands may still select unmatched sites." @change=${actions.changeStructuralFilters}><option value="all">All</option><option value="idr">IDR</option><option value="structured">Structured</option></select></div>`,
     }, html`
-      <div class="control"><label for="displayed-contrast">Contrast for plots, detail and GSEA</label><select id="displayed-contrast" @change=${actions.changeDisplayedContrast}></select></div>
-      ${renderGseaNavigation(actions)}
+      <div class="control"><label for="displayed-contrast">${profile.contrastLabel}</label><select id="displayed-contrast" @change=${actions.changeDisplayedContrast}></select></div>
+      ${profile.enrichment?.renderNavigation(actions)}
       <div class="control global-search"><label for="find-search">Find protein</label><input id="find-search" type="search" placeholder="Gene, ID or accession" @input=${actions.refreshSummary} /></div>
-    `)}
+    `, profile)}
     <nav class="main-tabs" aria-label="Workspaces">
       <button type="button" data-main="find" aria-selected="true" @click=${() => actions.showMain('find')}>Find proteins</button>
       <button type="button" data-main="protein" aria-selected="false" @click=${() => actions.showMain('protein')}>Protein detail</button>
@@ -76,9 +65,9 @@ export function renderApp(actions: AppViewActions): TemplateResult {
           <button type="button" data-find="all" aria-selected="true" @click=${() => actions.showFind('all')}>All contrasts</button>
           <button type="button" data-find="single" aria-selected="false" @click=${() => actions.showFind('single')}>Single contrast</button>
           <button type="button" data-find="sequlogos" aria-selected="false" @click=${() => actions.showFind('sequlogos')}>Single contrast sequlogos</button>
-          <button id="gsea-find-tab" type="button" data-find="gsea" aria-selected="false" hidden @click=${() => actions.showFind('gsea')}>GSEA</button>
+          ${profile.enrichment?.renderFindTab(() => actions.showFind('gsea'))}
         </nav>
-        ${renderGseaFindPanel()}
+        ${profile.enrichment?.renderFindPanel()}
         <div id="find-grid" class="find-grid all-contrasts">
           <div class="card"><div class="card-title"><span id="find-count" class="scope-count">Proteins</span><small id="find-row-hint">Click a row to inspect its sites</small></div><div class="card-body flush"><div id="find-table" class="table-host"></div></div></div>
           <div id="focused-plots" class="focused-plots" hidden>

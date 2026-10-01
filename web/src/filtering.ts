@@ -54,16 +54,6 @@ function propertyRelation(data: AppData, contrast: string, estimate: EstimateTyp
   return {definitions,pairs}
 }
 
-/** Keep C's full union and set sizes, but display only useful exact combinations. */
-export function relevantCombinedIntersections(model: UpSetModel): UpSetModel {
-  const active = model.sets.filter(set=>set.enabled)
-  const properties = active.filter(set=>['estimate','exposure','region'].includes(set.id)).map(set=>set.id)
-  const selections = active.filter(set=>['contrast_selection','sequence_set_selection'].includes(set.id)).map(set=>set.id)
-  return {...model,intersections:model.intersections.filter(group=>
-    properties.every(id=>group.setIds.includes(id))
-    && (!selections.length || selections.some(id=>group.setIds.includes(id))))}
-}
-
 export type FilterBranch = 'a' | 'b' | 'c'
 export interface FilterState { a:SetSelection; b:SetSelection; c:SetSelection; showAll:boolean }
 /** A chooses which contrasts B may inspect, not which sites enter B. */
@@ -71,6 +61,10 @@ export function contrastsAllowedByA(contrasts: readonly string[], choice: SetSel
   if (choice.kind==='off'||choice.kind==='all') return [...contrasts]
   const selected=new Set(choice.kind==='set'?[choice.id]:choice.kind==='intersection'?choice.ids:[])
   return contrasts.filter(contrast=>selected.has(contrast))
+}
+/** Preserve the current upper context while A permits it; otherwise choose its first contrast. */
+export function chooseDisplayedContrast(allowed: readonly string[], current: string): string {
+  return allowed.includes(current)?current:allowed[0]??''
 }
 export interface EnrichmentInput {
   payload: GseaPayload | null
@@ -81,6 +75,9 @@ export interface EnrichmentInput {
   status: string
   ready: boolean
 }
+
+export const NO_ENRICHMENT: EnrichmentInput = {payload:null,fdr:0.05,leading:false,
+  context:'',revision:0,status:'',ready:true}
 
 /** DOM-free owner of A/B/C relations, transitions and the measured-site universe. */
 export class FilterModel {

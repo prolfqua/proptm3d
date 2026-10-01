@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { computeUpSet, resolveSelection, siteIdentity } from '../src/membership.js'
-import { contrastsAllowedByA, FilterModel, relevantCombinedIntersections, type EnrichmentInput } from '../src/filtering.js'
+import { contrastsAllowedByA, FilterModel, type EnrichmentInput } from '../src/filtering.js'
+import { displayedUpSet } from '../src/upset-model.js'
 import { ALL_STRUCTURES, UNAVAILABLE_STRUCTURE } from '../src/structural.js'
 import type { AppData, GseaPayload } from '../src/types.js'
 
@@ -152,14 +153,16 @@ test('Show all suspends and restores hierarchy, preserving selections and displa
   assert.equal(JSON.stringify(model.state),before)
 })
 
-test('C preview is display-only and does not alter exact membership or union', () => {
+test('C All displays every exact intersection so columns reconcile with its union', () => {
   const model=new FilterModel()
-  update(model)
-  model.select('b',{kind:'all'})
-  const source=model.get('c')
-  const displayed=relevantCombinedIntersections(source)
-  assert.equal(displayed.union,source.union)
-  assert.deepEqual(resolveSelection(source,{kind:'all'}),new Set([key('S1'),key('S2'),key('S3')]))
+  model.update(data,'early',{fdr:0.05,absEffect:1},'observed',ALL_STRUCTURES,enrichment())
+  model.select('a',{kind:'set',id:'late'})
+  const displayed=displayedUpSet(model.get('c'),model.state.c,'all')
+  assert.equal(displayed.intersections.length,2)
+  assert.ok(displayed.intersections.some(group=>group.setIds.length===1
+    && group.setIds[0]==='estimate' && group.siteKeys.has(key('S1'))))
+  assert.equal(displayed.intersections.reduce((total,group)=>total+group.siteKeys.size,0),model.siteKeys.size)
+  assert.deepEqual(model.siteKeys,new Set([key('S1'),key('S2')]))
 })
 
 test('switching the display-only GSEA method leaves explicit C selection intact while B is Off', () => {
@@ -174,15 +177,25 @@ test('switching the display-only GSEA method leaves explicit C selection intact 
   assert.deepEqual(model.siteKeys,before)
 })
 
-test('the C Estimate contrast is explicit and independent of plot contrast navigation', () => {
+test('C Estimate follows the shared upper contrast and changes effective sites', () => {
   const model=new FilterModel()
   model.update(data,'early',{fdr:0.05,absEffect:1},'observed',ALL_STRUCTURES,enrichment())
   assert.deepEqual(model.properties[0].siteKeys,new Set([key('S1'),key('S2')]))
-  model.select('c',{kind:'intersection',ids:['estimate']})
-  const unchanged=model.update(data,'early',{fdr:0.05,absEffect:1},'observed',ALL_STRUCTURES,enrichment())
-  assert.equal(unchanged.changed,false)
-  assert.deepEqual(model.state.c,{kind:'intersection',ids:['estimate']})
+  model.select('a',{kind:'off'})
+  assert.deepEqual(model.siteKeys,new Set([key('S1'),key('S2')]))
   model.update(data,'late',{fdr:0.05,absEffect:1},'observed',ALL_STRUCTURES,enrichment())
   assert.deepEqual(model.properties[0].siteKeys,new Set([key('S2')]))
+  assert.deepEqual(model.siteKeys,new Set([key('S2')]))
+  model.select('c',{kind:'intersection',ids:['estimate']})
+  model.update(data,'early',{fdr:0.05,absEffect:1},'observed',ALL_STRUCTURES,enrichment())
   assert.deepEqual(model.state.c,{kind:'all'})
+  assert.deepEqual(model.siteKeys,new Set([key('S1'),key('S2')]))
+})
+
+test('upper contrast remains display-only for C while Estimate is disabled', () => {
+  const model=new FilterModel()
+  model.update(data,'early',{fdr:0.05,absEffect:1},'all',ALL_STRUCTURES,enrichment())
+  model.select('c',{kind:'intersection',ids:['contrast_selection']})
+  model.update(data,'late',{fdr:0.05,absEffect:1},'all',ALL_STRUCTURES,enrichment())
+  assert.deepEqual(model.state.c,{kind:'intersection',ids:['contrast_selection']})
 })

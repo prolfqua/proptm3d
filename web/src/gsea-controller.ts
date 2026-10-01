@@ -13,7 +13,7 @@ import {
   selectedSequenceSet,
   sequenceSetKey,
   sequenceSetsAtFdr,
-  availableEnrichmentScopes,
+  resolveEnrichmentContext,
 } from './gsea.js'
 import {
   createGseaSiteTable,
@@ -107,9 +107,9 @@ export class GseaController {
 
   private syncScopeOptions(): void {
     if (!this.run) return
-    const scopes=availableEnrichmentScopes(this.run,this.allowedContrasts)
-      .filter(scope=>scope.contrasts.includes(this.contrast))
-    this.resultId=(scopes.find(({result})=>result.id===this.resultId)??scopes[0])?.result.id??''
+    const {scopes,resultId}=resolveEnrichmentContext(this.run,this.allowedContrasts,
+      this.resultId,this.contrast)
+    this.resultId=resultId
     const resultSelect=this.el<HTMLSelectElement>('#gsea-result')
     const results=this.branchSelection.kind==='off'?scopes
       :scopes.filter(({result})=>result.id===this.resultId)
