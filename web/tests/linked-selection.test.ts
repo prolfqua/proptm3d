@@ -41,15 +41,15 @@ test('filter collapse keeps context navigation and the current selection summary
   el('#toggle-filters').onclick()
   assert.equal(el('#filter-body').hidden,true)
   assert.equal(el('#filter-summary').textContent,summary)
-  panel.model.setShowAll(true)
+  panel.model.setGlobalOff(true)
   panel.update(data,'early',{fdr:0.01,absEffect:1},'all',ALL_STRUCTURES,
     {...enrichment,revision:2})
-  assert.match(el('#filter-summary').textContent,/Showing all 4 measured sites \(filters paused\)/)
+  assert.match(el('#filter-summary').textContent,/All filtering off · 4 \/ 4 sites shown · saved filters would select 0/)
   panel.update(data,'early',{fdr:0.01,absEffect:1},'all',{exposure:'exposed',region:'idr'},
     {...enrichment,revision:3})
-  assert.match(el('#filter-summary').textContent,/exposure: exposed · region: idr/)
+  assert.match(el('#filter-summary').textContent,/C settings \(inactive\): exposure: exposed, region: idr/)
   const withGsea={...data,run:{...data.run,gsea:{results:[{id:'result'}]}}} as AppData
-  panel.model.setShowAll(false)
+  panel.model.setGlobalOff(false)
   panel.update(withGsea,'early',thresholds,'all',ALL_STRUCTURES,
     {...enrichment,payload:emptyPayload,context:'result\u0000late',revision:4})
   const choose=panel as unknown as {select:(branch:string,selection:SetSelection)=>void}
@@ -75,8 +75,10 @@ test('filter warning names only the branches that currently affect results', () 
   panel.update(withGsea,'early',thresholds,'all',ALL_STRUCTURES,
     {...enrichment,revision:4,payload:emptyPayload})
   assert.match(el('#filter-summary').textContent,/Filtering by A \+ B/)
-  el('#show-all-sites').onchange({target:{checked:true}})
-  assert.match(el('#filter-summary').textContent,/Filters paused/)
+  choose.select('c',{kind:'off'})
+  assert.match(el('#filter-summary').textContent,/Filtering by A \+ B.*C: off/)
+  el('#toggle-filtering').onclick()
+  assert.match(el('#filter-summary').textContent,/All filtering off/)
 })
 
 test('C union reaches tables, detail and logos without an implicit significance AND', () => {
@@ -119,7 +121,7 @@ function panelFixture(profile=gseaProfile) {
     if (!elements.has(id)) elements.set(id,{hidden:true,disabled:false,dataset:{},classList:{toggle(){}},setAttribute(){}})
     return elements.get(id)
   }
-  const buttons = ['a','b'].flatMap(branch=>['off','all'].map(mode=>{
+  const buttons = ['a','b','c'].flatMap(branch=>['off','all'].map(mode=>{
     const button = el(`${branch}-${mode}`)
     button.dataset={filterBranch:branch,filterMode:mode}
     return button
@@ -158,7 +160,7 @@ test('prepared capabilities select Stats or GSEA plugins with distinct UpSet com
   assert.deepEqual(Object.keys((panel as unknown as {plots:object}).plots).sort(),['a','c'])
 })
 
-test('upstream edits reset C, preserve empty A, and show-all suspends only filter editing', () => {
+test('upstream edits reset explicit C but preserve C Off and editable A/B', () => {
   const {panel,el,update} = panelFixture()
   panel.model.select('a',{kind:'set',id:'early'})
   panel.model.select('c',{kind:'intersection',ids:['contrast_selection']})
@@ -168,17 +170,29 @@ test('upstream edits reset C, preserve empty A, and show-all suspends only filte
   assert.deepEqual(panel.state.c,{kind:'all'})
   assert.match(el('#filter-notice').textContent,/C returned to all/)
   panel.model.select('c',{kind:'intersection',ids:['contrast_selection']})
-  el('#show-all-sites').onchange({target:{checked:true}})
-  assert.deepEqual(panel.siteKeys,universe)
-  assert.equal(el('#fdr-cutoff').disabled,true)
+  el('c-off').onclick()
+  assert.equal(panel.siteKeys.size,0,'A remains effective when C is Off')
+  assert.equal(el('#fdr-cutoff').disabled,false)
   assert.equal(el('#gsea-result').disabled,false)
   assert.equal(el('#displayed-contrast').disabled,false)
-  el('#show-all-sites').onchange({target:{checked:false}})
+  assert.equal(el('c-off').dataset.filterMode,'off')
+  update(undefined,{fdr:0.0002,absEffect:1})
+  assert.deepEqual(panel.state.c,{kind:'off'})
+  el('c-all').onclick()
   assert.equal(panel.siteKeys.size,0)
-  assert.deepEqual(panel.state.c,{kind:'intersection',ids:['contrast_selection']})
-  el('#clear-c').onclick()
   assert.deepEqual(panel.state.c,{kind:'all'})
   assert.deepEqual(panel.state.a,{kind:'set',id:'early'})
+  el('#toggle-filtering').onclick()
+  assert.deepEqual(panel.siteKeys,universe)
+  assert.equal(el('#filter-body').hidden,true)
+  assert.equal(el('#toggle-filters').textContent,'Inspect filters')
+  assert.match(el('#filter-c-label').textContent,/all · 0 sites if filtering on/)
+  assert.match(el('#filter-summary').textContent,/saved filters would select 0/)
+  assert.deepEqual(panel.state.a,{kind:'set',id:'early'})
+  el('#toggle-filtering').onclick()
+  assert.equal(panel.siteKeys.size,0)
+  assert.equal(el('#filter-body').hidden,true)
+  assert.equal(el('#toggle-filters').textContent,'Show filters')
 })
 
 test('loading/error/empty are distinct, and B Off stays usable', () => {
@@ -217,7 +231,7 @@ test('C whole-set bars select shared members and reclick restores union without 
   assert.deepEqual(panel.siteKeys,new Set(['P1\u0000S1','P1\u0000S2','P1\u0000S3']))
 })
 
-test('display degree changes preserve A/B/C selections, site counts and Show all', () => {
+test('display degree changes preserve A/B/C selections and site counts', () => {
   const {panel,el}=panelFixture()
   panel.model.select('a',{kind:'set',id:'early'})
   panel.model.select('c',{kind:'intersection',ids:['contrast_selection']})
@@ -229,9 +243,9 @@ test('display degree changes preserve A/B/C selections, site counts and Show all
     assert.equal(panel.siteKeys,keys)
     assert.equal(panel.revision,revision)
   }
-  el('#show-all-sites').onchange({target:{checked:true}})
-  assert.equal(el('#effect-cutoff').disabled,true)
-  assert.equal(el('#gsea-fdr').disabled,true)
+  el('c-off').onclick()
+  assert.equal(el('#effect-cutoff').disabled,false)
+  assert.equal(el('#gsea-fdr').disabled,false)
   assert.equal(el('#filter-b-degree').disabled,false, 'display-only controls remain usable')
 })
 

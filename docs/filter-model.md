@@ -35,7 +35,8 @@ Prepared rows ──► set definitions + (site, set) pairs ──► A and B re
                                                             ▼
               Estimate / Exposure / Region pairs ──► C relation result
                                                             │
-                                      C selection or Show all sites
+                                      C selection (Off / All / set / exact)
+                                      + global filtering On / Off
                                                             ▼
                                        one deduplicated site-key set
                                                             │
@@ -62,10 +63,13 @@ C_operands         = enabled A_output, enabled B_output,
                      enabled Estimate, Exposure and Region site sets
 C_all              = UNION DISTINCT C_operands; if none enabled, U
 C_exact[signature] = sites in exactly the marked enabled C operands
-effective_sites    = U when Show all sites is on; otherwise resolve(C, C_selection)
+filtered_sites     = UNION DISTINCT enabled A_output and B_output when C is Off
+                     (or U when both A and B are Off)
+                   = resolve(C, C_selection) otherwise
+effective_sites    = U when global filtering is Off; otherwise filtered_sites
 ```
 
-`Off` means there is **no operand**; it is not an operand containing every site. `All` means the union of the named sets within that UpSet. A named selection means the whole named set, including shared sites. An exact intersection is a membership signature: a site must be in every marked set and absent from every other enabled set in that same UpSet. For example, selecting the A+B column in C requires both; leaving C at All includes sites satisfying A **or** B (or another enabled property operand). An enabled B with zero eligible sets resolves to an empty set, not to Off. Loading or failed GSEA data is a separate state, not a successful empty result.
+`Off` disables only its branch. A/B Off contribute no operand; C Off leaves the selected A/B outputs effective but ignores C's Estimate, Exposure and Region operands. It is not an operand containing every site. The separate global filtering switch bypasses every branch and shows the complete measured-site catalog without clearing selections. The model still computes `filtered_sites` for the UpSet preview while global filtering is Off; only `effective_sites` feeds result views. `All` means the union of the named sets within that UpSet. A named selection means the whole named set, including shared sites. An exact intersection is a membership signature: a site must be in every marked set and absent from every other enabled set in that same UpSet. For example, selecting the A+B column in C requires both; leaving C at All includes sites satisfying A **or** B (or another enabled property operand). An enabled B with zero eligible sets resolves to an empty set, not to Off. Loading or failed GSEA data is a separate state, not a successful empty result.
 
 The shared relation evaluator partitions only **observed** membership signatures. It does not enumerate the `2^n` possible signatures or use a 32-bit bit mask. A reads significant site-result rows. B receives the upper A-permitted contrast, then reads one compatible GSEA payload and filters set definitions by GSEA FDR before applying optional leading-edge membership. An A named set permits one upper contrast; an exact A intersection permits its marked contrasts; A Off/All permits every prepared contrast. The upper method chooser offers only results for the current contrast; while B is Off it supplies B's candidate payload, and an active B locks that method. This is a context dependency, not a site-level A∩B operation. C is a new relation whose A/B membership rows come from their separately resolved outputs; Estimate, Exposure and Region supply its other rows. Thus the plots do not return tables to be joined. Rows, searched names, dot-count choices, paging and the Selected/All plot toggle are display projections. They cannot change A/B/C membership or the complete eligible-set universe used to define an exact intersection. C's All view draws every observed exact signature, so its column counts partition the union and add up to the selected-site count.
 

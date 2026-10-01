@@ -55,7 +55,7 @@ function propertyRelation(data: AppData, contrast: string, estimate: EstimateTyp
 }
 
 export type FilterBranch = 'a' | 'b' | 'c'
-export interface FilterState { a:SetSelection; b:SetSelection; c:SetSelection; showAll:boolean }
+export interface FilterState { a:SetSelection; b:SetSelection; c:SetSelection; globalOff:boolean }
 /** A chooses which contrasts B may inspect, not which sites enter B. */
 export function contrastsAllowedByA(contrasts: readonly string[], choice: SetSelection): string[] {
   if (choice.kind==='off'||choice.kind==='all') return [...contrasts]
@@ -81,7 +81,7 @@ export const NO_ENRICHMENT: EnrichmentInput = {payload:null,fdr:0.05,leading:fal
 
 /** DOM-free owner of A/B/C relations, transitions and the measured-site universe. */
 export class FilterModel {
-  private readonly selectionState: FilterState = {a:{kind:'all'},b:{kind:'off'},c:{kind:'all'},showAll:false}
+  private readonly selectionState: FilterState = {a:{kind:'all'},b:{kind:'off'},c:{kind:'all'},globalOff:false}
   private models: Record<FilterBranch, UpSetModel> = {
     a:computeUpSet([],[]),b:computeUpSet([],[]),c:computeUpSet([],[]),
   }
@@ -95,6 +95,7 @@ export class FilterModel {
   enrichmentReady = true
   enrichmentStatus = ''
   revision = 0
+  filteredSiteKeys: ReadonlySet<string> = new Set()
   siteKeys: ReadonlySet<string> = new Set()
 
   get state(): Readonly<FilterState> { return this.selectionState }
@@ -137,7 +138,8 @@ export class FilterModel {
       }
     }
     this.context=enrichment.context
-    if (this.cInputKey && cInputKey!==this.cInputKey && this.selectionState.c.kind!=='all') {
+    if (this.cInputKey && cInputKey!==this.cInputKey &&
+      ['set','intersection'].includes(this.selectionState.c.kind)) {
       this.selectionState.c={kind:'all'}
       notices.push('Upstream filters changed. C returned to all (union); A and B retain their selections.')
     }
@@ -149,20 +151,21 @@ export class FilterModel {
 
   /** Whole set, exact signature and reclick transitions are identical in A, B and C. */
   select(branch: FilterBranch, selection: SetSelection): boolean {
-    if ((this.selectionState.showAll && !(branch==='c'&&selection.kind==='all'))
-      || (branch==='b'&&(!this.includeB||!this.enrichmentReady)&&selection.kind!=='off')) return false
+    if (branch==='b'&&(!this.includeB||!this.enrichmentReady)&&selection.kind!=='off') return false
     const choice=selection.kind==='intersection'
       ? {kind:'intersection' as const,ids:[...selection.ids].sort()} : selection
     this.selectionState[branch]=JSON.stringify(this.selectionState[branch])===JSON.stringify(choice)
       && !['all','off'].includes(choice.kind) ? {kind:'all'} : choice
-    if (branch!=='c') this.selectionState.c={kind:'all'}
+    if (branch!=='c'&&['set','intersection'].includes(this.selectionState.c.kind)) {
+      this.selectionState.c={kind:'all'}
+    }
     this.recompute()
     return true
   }
 
-  setShowAll(show: boolean): boolean {
-    if (this.selectionState.showAll===show) return false
-    this.selectionState.showAll=show
+  setGlobalOff(off: boolean): boolean {
+    if (this.selectionState.globalOff===off) return false
+    this.selectionState.globalOff=off
     this.recompute()
     return true
   }
@@ -180,10 +183,13 @@ export class FilterModel {
     this.models.c=computeUpSet([...definitions,...this.propertyDefinitions],
       [...pairs,...this.propertyPairs])
     const c=this.models.c
-    this.siteKeys=this.selectionState.showAll || !c.sets.some(set=>set.enabled)
-      ? this.measured
-      : this.selectionState.b.kind!=='off' && !this.enrichmentReady
-        ? new Set() : resolveSelection(c,this.selectionState.c)!
+    if (this.selectionState.c.kind==='off') {
+      this.filteredSiteKeys=definitions.some(set=>set.enabled)
+        ? new Set(pairs.map(([siteKey])=>siteKey)) : this.measured
+    } else if (!c.sets.some(set=>set.enabled)) this.filteredSiteKeys=this.measured
+    else if (this.selectionState.b.kind!=='off' && !this.enrichmentReady) this.filteredSiteKeys=new Set()
+    else this.filteredSiteKeys=resolveSelection(c,this.selectionState.c)!
+    this.siteKeys=this.selectionState.globalOff?this.measured:this.filteredSiteKeys
     this.revision++
   }
 }

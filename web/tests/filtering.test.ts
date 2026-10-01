@@ -139,18 +139,32 @@ test('B FDR eligibility, leading edge, empty All and context reset are independe
   assert.deepEqual(model.siteKeys,new Set(sites.map(s=>key(s.site))))
 })
 
-test('Show all suspends and restores hierarchy, preserving selections and display context', () => {
+test('C Off leaves A/B effective, while global Off bypasses all branches without clearing choices', () => {
   const model=new FilterModel()
   update(model)
   model.select('b',{kind:'all'})
   model.select('c',{kind:'intersection',ids:['contrast_selection','sequence_set_selection']})
-  const before=JSON.stringify(model.state)
-  model.setShowAll(true)
-  assert.deepEqual(model.siteKeys,new Set(sites.map(s=>key(s.site))))
-  assert.equal(model.select('a',{kind:'off'}),false)
-  model.setShowAll(false)
+  model.select('c',{kind:'off'})
+  assert.deepEqual(model.siteKeys,new Set([key('S1'),key('S2'),key('S3')]))
+  assert.deepEqual(model.state.b,{kind:'all'})
+  assert.equal(model.select('a',{kind:'set',id:'late'}),true)
+  assert.deepEqual(model.state.c,{kind:'off'})
+  assert.deepEqual(model.siteKeys,new Set([key('S2'),key('S3')]))
+  update(model,2,{leading:true})
+  assert.deepEqual(model.state.c,{kind:'off'},'upstream edits do not reset C Off')
+  model.select('c',{kind:'all'})
+  assert.deepEqual(model.siteKeys,new Set([key('S2'),key('S3')]))
+  model.select('c',{kind:'off'})
+  update(model,3,{payload:null,ready:false,status:'Loading enrichment…'})
+  assert.deepEqual(model.siteKeys,new Set([key('S2')]),'C Off still applies A while B is loading')
+  model.setGlobalOff(true)
+  assert.deepEqual(model.siteKeys,new Set(sites.map(s=>key(s.site))),
+    'global Off bypasses every branch without changing its selection')
+  assert.deepEqual(model.filteredSiteKeys,new Set([key('S2')]),
+    'the would-be filter result remains available for the UpSet preview')
+  assert.deepEqual(model.state.c,{kind:'off'})
+  model.setGlobalOff(false)
   assert.deepEqual(model.siteKeys,new Set([key('S2')]))
-  assert.equal(JSON.stringify(model.state),before)
 })
 
 test('C All displays every exact intersection so columns reconcile with its union', () => {
@@ -163,6 +177,19 @@ test('C All displays every exact intersection so columns reconcile with its unio
     && group.setIds[0]==='estimate' && group.siteKeys.has(key('S1'))))
   assert.equal(displayed.intersections.reduce((total,group)=>total+group.siteKeys.size,0),model.siteKeys.size)
   assert.deepEqual(model.siteKeys,new Set([key('S1'),key('S2')]))
+})
+
+test('C Off ignores C properties without disabling A or B', () => {
+  const model=new FilterModel()
+  update(model,1,{}, {exposure:'exposed',region:'all'})
+  model.select('a',{kind:'set',id:'early'})
+  assert.deepEqual(model.siteKeys,new Set([key('S1'),key('S2'),key('S3')]))
+  model.select('c',{kind:'off'})
+  assert.deepEqual(model.siteKeys,new Set([key('S1'),key('S2')]))
+  model.select('a',{kind:'off'})
+  assert.deepEqual(model.siteKeys,new Set(sites.map(site=>key(site.site))))
+  model.select('c',{kind:'all'})
+  assert.deepEqual(model.siteKeys,new Set([key('S3')]))
 })
 
 test('switching the display-only GSEA method leaves explicit C selection intact while B is Off', () => {

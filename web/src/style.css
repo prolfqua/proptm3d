@@ -137,8 +137,6 @@ ptm-browser-app { display: block; min-height: 100vh; }
   white-space: nowrap;
 }
 .gsea-checkbox input { margin: 0; }
-.show-all-sites { display: flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
-.show-all-sites input { margin: 0; }
 .control { display: grid; gap: 0.2rem; min-width: 8rem; }
 .control.search { flex: 1 1 15rem; }
 .control label, .control .control-label {
@@ -280,6 +278,7 @@ ptm-browser-app { display: block; min-height: 100vh; }
 .filter-state-bar.has-active-filters { border-left: 4px solid #bd2832; background: #fff1f2; }
 .filter-state-bar.has-active-filters .filter-summary { color: #8f1825; font-weight: 650; }
 .filter-state-bar.has-active-filters button { border-color: #bd2832; color: #8f1825; }
+.filter-state-bar #toggle-filtering[aria-pressed="true"] { background: #1f4f82; border-color: #1f4f82; color: #fff; }
 .filter-navigation { display: flex; flex-wrap: wrap; align-items: end; gap: .6rem 1rem; padding: .75rem .9rem; margin-top: 1rem; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); }
 .filter-navigation .control { flex: 0 1 20rem; }
 .filter-navigation .gsea-result { flex: 0 1 17rem; }
@@ -289,7 +288,6 @@ ptm-browser-app { display: block; min-height: 100vh; }
 .filter-navigation .subtle { flex-basis: 100%; font-size: .75rem; }
 .filter-branch-control { display: flex; align-items: center; flex-wrap: wrap; gap: .4rem; padding: .6rem .9rem; border-bottom: 1px solid var(--line); }
 .filter-branch-control span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.filter-c-control .show-all-sites { margin-left: auto; }
 .filter-panel button { padding: .4rem .7rem; border: 1px solid #cbd5e1; background: #f8fafc; border-radius: 4px; cursor: pointer; }
 .filter-panel button[aria-selected="true"], .filter-panel button[aria-pressed="true"] { background: #1f4f82; color: #fff; }
 .filter-panel button:disabled { opacity: .45; cursor: default; }
@@ -315,7 +313,6 @@ ptm-browser-app { display: block; min-height: 100vh; }
 .upset-plot-toolbar { position: absolute; z-index: 2; top: .4rem; left: .75rem; display: inline-flex; align-items: center; gap: .25rem; padding: .2rem .3rem; border-radius: 4px; background: rgba(255,255,255,.94); font-size: .76rem; color: var(--muted); white-space: nowrap; }
 .upset-plot-toolbar button { padding: .28rem .5rem; }
 .upset-page { display: flex; align-items: center; justify-content: center; gap: .7rem; padding: .5rem; font-size: .75rem; }
-.filters-paused .upset-scroll { opacity: .5; pointer-events: none; }
 .filter-panel .metric-note { margin: 0; padding: .6rem .9rem; }
 
 @media (max-width: 1100px) {

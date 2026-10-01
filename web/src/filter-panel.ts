@@ -20,24 +20,22 @@ export function renderFilters(controls: Record<Branch,TemplateResult>, navigatio
   <section class="filter-panel" aria-label="Shared site filtering">
     <div id="filter-state-bar" class="filter-state-bar">
       <button id="toggle-filters" type="button" aria-controls="filter-body" aria-expanded="true">Hide filters</button>
+      <button id="toggle-filtering" type="button" aria-pressed="false">Filtering: On</button>
       <span id="filter-summary" class="filter-summary" role="status">Loading filter selection…</span>
     </div>
     <div id="filter-body">
       <div id="filter-upset-panel" class="filter-upsets ${profile.id}">
       ${profile.branches.map(branch=>html`<div id="filter-${branch}-card" class="card filter-upset-card">
         <div class="card-title"><span>${{a:'A · Significant-site intersections',b:'B · Significant sequence_set intersections',c:'C · Filter intersections'}[branch]}</span><small id="filter-${branch}-count"></small></div>
-        <div id="filter-${branch}-control" class="filter-branch-control ${branch==='c'?'filter-c-control':''}">
-          ${branch==='c'?html`<strong>C selection</strong><span id="filter-c-label"></span>
-            <button id="clear-c" hidden>Clear C selection</button>`:html`
-            <strong>${branch==='a'?'Contrast selection':'Sequence_set selection'}</strong>
-            <button data-filter-branch=${branch} data-filter-mode="off">Off</button>
-            <button data-filter-branch=${branch} data-filter-mode="all">All</button>
-            <span id="filter-${branch}-label"></span>`}
-          ${branch==='c'?html`<label class="show-all-sites" title=${`Temporarily bypass ${profile.branches.map(b=>b.toUpperCase()).join(', ')} without losing their selections`}><input id="show-all-sites" type="checkbox"> Show all sites</label>`:''}
+        <div id="filter-${branch}-control" class="filter-branch-control">
+          <strong>${{a:'Contrast selection',b:'Sequence_set selection',c:'C selection'}[branch]}</strong>
+          <button data-filter-branch=${branch} data-filter-mode="off">Off</button>
+          <button data-filter-branch=${branch} data-filter-mode="all">All</button>
+          <span id="filter-${branch}-label"></span>
         </div>
         <div class="upset-controls">
           ${controls[branch]}
-          ${branch==='c'?html`<span class="subtle combined-preview-note">C All is the union of enabled sets. While filters are active, its exact columns partition that union and add up to the selected-site total. With no enabled sets, all measured sites are selected.</span>`:''}
+          ${branch==='c'?html`<span class="subtle combined-preview-note">C Off disables C only; A and B still select sites. C All applies the union of enabled sets; its exact columns partition that union. Global Filtering: Off shows all measured sites; open Inspect filters to see the saved filter preview.</span>`:''}
           ${branch==='c'?'':html`<div class="control"><label for="filter-${branch}-degree">Dots per intersection</label>
             <select id="filter-${branch}-degree" data-upset-degree=${branch} aria-describedby="filter-${branch}-degree-help"></select></div>
           <span id="filter-${branch}-degree-help" class="subtle">Display only · 1 dot = exclusive to one set</span>`}
@@ -61,6 +59,7 @@ export class FilterPanel {
   private bContrast = ''
   private bResult = ''
   private displayedContrast = ''
+  private hiddenBeforeGlobalOff = false
   private rendering = false
   private pending = false
 
@@ -78,21 +77,20 @@ export class FilterPanel {
       },
     )])) as Partial<Record<Branch,UpSetPlot>>
     this.el<HTMLButtonElement>('#toggle-filters').onclick=()=>{
-      const body=this.el('#filter-body')
-      body.hidden=!body.hidden
-      const button=this.el<HTMLButtonElement>('#toggle-filters')
-      button.textContent=body.hidden?'Show filters':'Hide filters'
-      button.setAttribute('aria-expanded',String(!body.hidden))
-      if (!body.hidden) void this.draw()
+      this.setBodyHidden(!this.el('#filter-body').hidden)
+      if (this.state.globalOff) this.hiddenBeforeGlobalOff=Boolean(this.el('#filter-body').hidden)
+    }
+    this.el<HTMLButtonElement>('#toggle-filtering').onclick=()=>{
+      if (this.model.setGlobalOff(!this.state.globalOff)) {
+        if (this.state.globalOff) {
+          this.hiddenBeforeGlobalOff=Boolean(this.el('#filter-body').hidden)
+          this.setBodyHidden(true)
+        } else this.setBodyHidden(this.hiddenBeforeGlobalOff)
+        this.renderState(); this.changed()
+      }
     }
     for (const button of root.querySelectorAll<HTMLButtonElement>('[data-filter-branch]')) {
       button.onclick=()=>this.select(button.dataset.filterBranch as Branch,{kind:button.dataset.filterMode as 'off'|'all'})
-    }
-    this.el<HTMLButtonElement>('#clear-c').onclick=()=>this.select('c',{kind:'all'})
-    this.el<HTMLInputElement>('#show-all-sites').onchange=event=>{
-      if (this.model.setShowAll((event.target as HTMLInputElement).checked)) {
-        this.renderState(); this.changed()
-      }
     }
     for (const button of root.querySelectorAll<HTMLButtonElement>('[data-upset-page]')) button.onclick=()=>{
       this.pages[button.dataset.upsetPage as 'a'|'b']+=Number(button.dataset.direction)
@@ -107,6 +105,17 @@ export class FilterPanel {
   }
 
   private el<T extends HTMLElement>(selector:string): T { return this.root.querySelector<T>(selector)! }
+
+  private setBodyHidden(hidden:boolean): void {
+    const body=this.el('#filter-body')
+    body.hidden=hidden
+    const button=this.el<HTMLButtonElement>('#toggle-filters')
+    button.textContent=this.state.globalOff
+      ? hidden?'Inspect filters':'Hide preview'
+      : hidden?'Show filters':'Hide filters'
+    button.setAttribute('aria-expanded',String(!hidden))
+    if (!hidden) void this.draw()
+  }
 
   findSequenceSets(matches: ReadonlySet<string> | null): void {
     if (this.profile.id!=='gsea') return
@@ -138,19 +147,20 @@ export class FilterPanel {
     if (selection.kind==='set'||selection.kind==='intersection') this.plots[branch]?.focusSelection()
     if (branch!=='c') this.pages[branch]=0
     this.el('#filter-notice').textContent=branch==='c'
-      ? 'C controls the final site selection. Clearing it returns to union without resetting A or B.'
-      : 'Upstream selection changed. C is all (union); choose a C intersection to require a particular combination.'
+      ? 'C Off disables C only; A and B remain effective. C All applies their union with enabled properties.'
+      : this.state.c.kind==='off'
+        ? 'Upstream selection changed. C remains Off; A and B still select sites.'
+        : 'Upstream selection changed. C is all (union); choose a C intersection to require a particular combination.'
     this.renderState(); this.changed()
   }
 
   private renderState(): void {
     for (const branch of this.profile.branches) {
       const model=this.model.get(branch),selection=this.state[branch]
-      const count=branch==='c'?this.siteKeys.size:(resolveSelection(model,selection)?.size??this.model.universeSize)
+      const count=branch==='c'?this.model.filteredSiteKeys.size
+        :(resolveSelection(model,selection)?.size??this.model.universeSize)
       const label=this.el(`#filter-${branch}-label`)
-      label.textContent=branch==='c'&&this.state.showAll
-        ? `showing all ${count.toLocaleString()} measured sites · C ${selectionLabel(model,selection)} paused`
-        : `${selectionLabel(model,selection)} · ${count.toLocaleString()} sites`
+      label.textContent=`${selectionLabel(model,selection)} · ${count.toLocaleString()} sites${branch==='c'&&this.state.globalOff?' if filtering on':''}`
       label.title=label.textContent
     }
     const status=filterStatus(this.model,this.profile.branches,this.displayedContrast,
@@ -159,22 +169,18 @@ export class FilterPanel {
     summary.textContent=status.text
     summary.title=summary.textContent
     this.el('#filter-state-bar').classList.toggle('has-active-filters',status.active)
+    const filtering=this.el<HTMLButtonElement>('#toggle-filtering')
+    filtering.textContent=this.state.globalOff?'Filtering: Off':'Filtering: On'
+    filtering.setAttribute('aria-pressed',String(this.state.globalOff))
+    filtering.setAttribute('aria-label',this.state.globalOff?'Turn site filtering on':'Turn site filtering off')
     if (this.profile.id==='gsea') {
       this.el('#filter-b-control').hidden=this.el('#filter-b-card').hidden=!this.model.includeB
     }
-    for (const control of this.root.querySelectorAll<HTMLInputElement | HTMLSelectElement>(
-      '#fdr-cutoff, #effect-cutoff, #estimate-type, #exposure-filter, #region-filter, #gsea-fdr, #leading-edge-only')) {
-      control.disabled=this.state.showAll
-    }
     for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-filter-branch]')) {
-      const branch=button.dataset.filterBranch as 'a'|'b'
-      button.disabled=this.state.showAll || (branch==='b'&&!this.model.enrichmentReady&&button.dataset.filterMode!=='off')
+      const branch=button.dataset.filterBranch as Branch
+      button.disabled=branch==='b'&&!this.model.enrichmentReady&&button.dataset.filterMode!=='off'
       button.setAttribute('aria-pressed',String(this.state[branch].kind===button.dataset.filterMode))
     }
-    const clear=this.el<HTMLButtonElement>('#clear-c')
-    clear.hidden=this.state.c.kind==='all'
-    clear.disabled=this.state.showAll
-    this.el('#filter-upset-panel').classList.toggle('filters-paused',this.state.showAll)
     if (this.model.includeB&&!this.model.enrichmentReady) this.el('#filter-b-count').textContent=this.model.enrichmentStatus
     void this.draw()
   }
@@ -221,7 +227,7 @@ export class FilterPanel {
               button.disabled=Number(button.dataset.direction)<0?page===0:page>=pages-1
             }
           }
-          await this.plots[branch]!.render(model,this.state[branch],page,branch==='a',degree,this.state.showAll)
+          await this.plots[branch]!.render(model,this.state[branch],page,branch==='a',degree)
         }
       }
     } catch(error) {this.error(error instanceof Error?error.message:String(error))}

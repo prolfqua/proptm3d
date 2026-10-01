@@ -111,13 +111,13 @@ export class UpSetPlot {
   }
 
   async render(model: UpSetModel, selection: SetSelection, page: number, sortRows: boolean,
-    degree: number, paused: boolean): Promise<void> {
+    degree: number): Promise<void> {
     const graph=this.mount()
     const hasSelection=selection.kind==='set'||selection.kind==='intersection'
     const effectiveMode=hasSelection?this.viewMode:'all'
     for (const mode of ['selected','all'] as const) {
       const button=this.buttons[mode]!
-      button.disabled=paused || (mode==='selected'&&!hasSelection)
+      button.disabled=mode==='selected'&&!hasSelection
       button.setAttribute('aria-pressed',String(effectiveMode===mode))
     }
     const figure=buildUpSetFigure(model,selection,page,sortRows,degree,this.viewMode)
