@@ -6,6 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- The cache lives under `$XDG_CACHE_HOME/proptm3d` when `XDG_CACHE_HOME` is set, so a container can keep it in its mounted work folder; otherwise under `~/.cache/proptm3d` as before. Preparation and the `cache` commands use the same root.
 - Documentation now maps the prepared entities and keys to the browser's A/B/C set-query model and identifies the current model/view boundary.
 - UpSet panels now offer a Selected/All display toggle: selecting a set focuses its intersection columns, selecting an exact intersection focuses its member rows, and All restores the full plot without changing site filtering.
 - A `proptm3d` command prepares DPA, DPU, and CF-DPU static browser sites from `PTM_statistics.h5mu`, statistics delivery ZIPs, or completed delivery ZIPs containing `PTM_results.h5mu`.
@@ -18,7 +19,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Protein detail can color AlphaFold structures by pLDDT, exposure, predicted region, exact UniProt feature type, N-to-C position, or a neutral color. Its N-to-C plot aligns UniProt features with residue-by-residue exposure, predicted region, and pLDDT tracks.
 - Independent Exposure and Region filters apply consistently to protein summaries, plots, Protein detail, 3D and N-to-C markers, and Site abundance without redefining statistical significance.
 - Portable single-method, selected-method, and all-method ZIPs materialize referenced structures, PAE, and residue-context files under one shared directory. Bundles include optional Python-standard-library launchers for macOS/Linux and Windows.
-- `proptm3d upload ORDER_ID WORKUNIT_NAME` discovers and validates the cached PTM Pipeline delivery and proptm3d bundle, confirms the pair or prompts for replacement paths, then uploads them as separate workunits through B-Fabric applications 431 and 434 using the shared saved client credentials after a final confirmation. Interactive uploads show live per-file percentage, transferred bytes, speed, and ETA. An explicit third positional ZIP uploads only a proptm3d bundle.
 - `serve FOLDER` previews all prepared methods behind an analysis overview, `serve METHOD FOLDER` opens one method, and `serve BUNDLE.zip` validates and extracts a bundle temporarily.
 - Successful preparations are recorded in user-level history for discovery by a bare `bundle` command. `clean FOLDER` removes only a wholly owned prepared root and never removes source data or the shared cache.
 - Sphinx documentation, GitHub CI, Python 3.11 and 3.13 test coverage, TypeScript checks, browser-build verification, deploy smoke tests, and wheel-content verification form the package quality gate.
@@ -74,8 +74,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Renamed
 
+- `bundle` takes `--input FOLDER` and `--output FILE.zip`, the option names `prepare stats` and `prepare gsea` use; its earlier `--in` and `--out` are gone.
 - The project, Python package, command, cache root, and prepared-folder metadata use `proptm3d`; the earlier pre-release `ptm3d` name is retired.
 
 ### Removed
 
+- `proptm3d upload` and its upload-artifact cache: uploading the PTM delivery, the proptm3d bundle and the DEA zips to B-Fabric is `ptm-pipeline upload ORDER_ID WORKUNIT_NAME`, which takes the artifact paths from the project's `ptm_config.yaml`. proptm3d no longer depends on `bfabric` or `rich`.
 - The pre-release Excel/CSV pipeline, CBOR browser payloads, PyMOL and standalone per-protein exporters, and dual classic/table JavaScript applications are no longer supported. Their last browser sources and tests remain available in `legacy/legacy-browser-2026-09-23.zip` for historical reference only.

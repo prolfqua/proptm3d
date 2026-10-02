@@ -11,7 +11,6 @@ authors = [
 ]
 
 dependencies = [
-    "bfabric[transfer]>=1.23,<2",
     "biopython>=1.85,<2",
     "cyclopts",
     "h5py>=3.12",
@@ -21,7 +20,6 @@ dependencies = [
     "polars",
     "platformdirs>=4,<5",
     "requests",
-    "rich>=14,<15",
 ]
 
 [project.scripts]
@@ -107,14 +105,13 @@ known_first_party = ["proptm3d"]
 root_package = "proptm3d"
 
 [[tool.importlinter.contracts]]
-name = "CLI composes preparation, bundling, B-Fabric upload, and static serving"
+name = "CLI composes preparation, bundling, and static serving"
 type = "layers"
 exhaustive = true
 containers = ["proptm3d"]
 layers = [
     "cli",
-    "bfabric_upload",
-    "bundle | prepare | prepared_history | upload_cache | webapp",
+    "bundle | prepare | prepared_history | webapp",
     "browser_assets | plot_backgrounds | prepared_root | structural_context_cache",
     "alphafold_cache | gsea_data | prepared_data | structural_context",
     "uniprot_cache | uniprot_accession",

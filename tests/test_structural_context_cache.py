@@ -1,6 +1,8 @@
 """Tests for archive-wide structural-context cache orchestration."""
 
 import json
+import subprocess
+import sys
 
 import pytest
 
@@ -177,3 +179,19 @@ def test_cache_statuses_report_available_partial_and_missing_caches(tmp_path):
     assert human["structures"] == {"cached": 0, "total": 0, "available": False}
     assert human["pae"] == {"cached": 0, "total": 0, "available": False}
     assert human["context"]["available"] is False
+
+
+@pytest.mark.parametrize(
+    ("xdg", "expected"),
+    [("/work/.cache", "/work/.cache/proptm3d"), ("", "/home/u/.cache/proptm3d")],
+)
+def test_default_cache_root_follows_xdg_cache_home(xdg, expected):
+    script = "from proptm3d.structural_context_cache import DEFAULT_CACHE_ROOT as r; print(r)"
+    printed = subprocess.run(
+        [sys.executable, "-c", script],
+        env={"HOME": "/home/u", "XDG_CACHE_HOME": xdg},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert printed.stdout.strip() == expected

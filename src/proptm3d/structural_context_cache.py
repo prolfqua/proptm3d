@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 from pathlib import Path
 
@@ -25,7 +26,8 @@ from proptm3d.structural_context import (
 from proptm3d.uniprot_cache import PROTEOMES, Proteome
 
 MANIFEST_KIND = "proptm3d-structural-context-cache"
-DEFAULT_CACHE_ROOT = Path.home() / ".cache" / "proptm3d"
+# XDG_CACHE_HOME lets a container keep the cache in its mounted work folder.
+DEFAULT_CACHE_ROOT = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "proptm3d"
 
 
 def proteome_for_organism(organism: str) -> Proteome:

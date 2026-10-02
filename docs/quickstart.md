@@ -18,7 +18,7 @@ Prepare statistics from a `PTM_statistics.h5mu` file, create a complete static Z
 
 ```sh
 uv run proptm3d prepare stats DPA /path/to/viewer --input /path/to/PTM_statistics.h5mu
-uv run proptm3d bundle DPA --in /path/to/viewer --out /path/to/DPA.zip
+uv run proptm3d bundle DPA --input /path/to/viewer --output /path/to/DPA.zip
 uv run proptm3d serve /path/to/DPA.zip
 ```
 
@@ -31,7 +31,7 @@ uv run proptm3d prepare stats --input /path/to/PTM_delivery.zip
 # entry page: /path/to/proptm3d_PTM_delivery/index.html
 ```
 
-Preparation writes the root method-chooser `index.html`, each method's browser HTML/JS/CSS and static plot backgrounds, and the Parquet tables. When supplied, the positional folder is the prepared output root; no `output_3d` subfolder is added. `--input` is required and points independently to the source data. Omitting the method prepares all three methods; omitting both method and folder also selects the default folder beside the input. `bundle --in FOLDER` then builds an all-method ZIP. `serve DPA FOLDER` still serves a prepared method directly. The Python CLI does not run npm or install browser dependencies.
+Preparation writes the root method-chooser `index.html`, each method's browser HTML/JS/CSS and static plot backgrounds, and the Parquet tables. When supplied, the positional folder is the prepared output root; no `output_3d` subfolder is added. `--input` is required and points independently to the source data. Omitting the method prepares all three methods; omitting both method and folder also selects the default folder beside the input. `bundle --input FOLDER` then builds an all-method ZIP. `serve DPA FOLDER` still serves a prepared method directly. The Python CLI does not run npm or install browser dependencies.
 
 To preview all prepared methods, pass the **prepared output root** to `serve`, not the input delivery folder and not the `DPA/` subfolder. It is the directory containing `index.html` and method subfolders (`DPA/`, `DPU/`, `CF-DPU/`). For the current MiMB analysis, the actual prepared root is `~/data_analysis/MiMB_ptm_pipeline_v2/proptm3d_PTM_Late_vs_Uninfect/`:
 
@@ -58,13 +58,4 @@ When the output folder is omitted, `prepare gsea --input /path/to/PTM_Late_vs_Un
 
 The ZIP contains `serve.py`, `serve.sh`, and `serve.bat` by default, so a recipient can run the extracted site locally without installing proptm3d. Python 3 is the only runtime requirement; see the [bundle guide](bundles.md) for launch commands. Pass `--no-include-server` to omit these files.
 
-To upload the cached PTM Pipeline delivery and completed proptm3d bundle to B-Fabric, run:
-
-```sh
-uv run proptm3d upload 43037 "ptm-pipeline_analysis_v3"
-```
-
-The command shows both files and asks whether the cached pair is correct. Answer `n` to enter both
-artifact paths manually. It then asks before creating separate workunits in applications 431 and
-434. See the [B-Fabric upload guide](bfabric.md) for cache discovery, credentials, and server-side
-verification details.
+Uploading the PTM delivery, this bundle and the DEA zips to B-Fabric is `ptm-pipeline upload ORDER_ID WORKUNIT_NAME`.

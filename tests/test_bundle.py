@@ -25,7 +25,6 @@ def isolated_prepared_history(tmp_path, monkeypatch):
     monkeypatch.setattr(
         prepared_history, "history_path", lambda: tmp_path / "state" / "folders.json"
     )
-    monkeypatch.setattr(cli.upload_cache, "cache_path", lambda: tmp_path / "state" / "uploads.json")
 
 
 @pytest.fixture
@@ -560,7 +559,7 @@ def test_bundle_cli_lists_unavailable_and_registers_explicit_root(prepared_folde
     root, _, add_method = prepared_folder
     add_method("DPA")
     with pytest.raises(SystemExit, match="0"):
-        cli.app(["bundle", "DPA", "--in", str(root)])
+        cli.app(["bundle", "DPA", "--input", str(root)])
     assert prepared_history.prepared_folders() == (root.resolve(),)
     assert "viewer-DPA.zip" in capsys.readouterr().out
     with pytest.raises(SystemExit, match="0"):
@@ -573,7 +572,7 @@ def test_bundle_cli_selects_multiple_methods(prepared_folder, capsys):
     for method in ("DPA", "DPU", "CF-DPU"):
         add_method(method)
     with pytest.raises(SystemExit, match="0"):
-        cli.app(["bundle", "DPA", "DPU", "--in", str(root)])
+        cli.app(["bundle", "DPA", "DPU", "--input", str(root)])
     assert "Bundled DPA, DPU" in capsys.readouterr().out
     with ZipFile(root.with_name("viewer-DPA-DPU.zip")) as archive:
         assert "DPA/index.html" in archive.namelist()
@@ -609,12 +608,12 @@ def test_bundle_cli_reports_existing_zip_without_traceback(prepared_folder, caps
     destination.write_bytes(b"keep")
 
     with pytest.raises(SystemExit) as error:
-        cli.app(["bundle", "DPA", "--in", str(root), "--out", str(destination)])
+        cli.app(["bundle", "DPA", "--input", str(root), "--output", str(destination)])
 
     assert error.value.code == 2
     output = capsys.readouterr()
     assert str(destination) in output.err
-    assert "another --out path" in output.err
+    assert "another --output path" in output.err
     assert "Traceback" not in output.err
     assert destination.read_bytes() == b"keep"
 
@@ -623,7 +622,7 @@ def test_bundle_cli_includes_server_by_default_and_allows_opt_out(prepared_folde
     root, _, add_method = prepared_folder
     add_method("DPA")
     with pytest.raises(SystemExit, match="0"):
-        cli.app(["bundle", "DPA", "--in", str(root)])
+        cli.app(["bundle", "DPA", "--input", str(root)])
     with ZipFile(root.with_name("viewer-DPA.zip")) as archive:
         assert set(bundle.SERVER_FILES).issubset(archive.namelist())
     without_server = root.with_name("without-server.zip")
@@ -632,9 +631,9 @@ def test_bundle_cli_includes_server_by_default_and_allows_opt_out(prepared_folde
             [
                 "bundle",
                 "DPA",
-                "--in",
+                "--input",
                 str(root),
-                "--out",
+                "--output",
                 str(without_server),
                 "--no-include-server",
             ]
@@ -709,7 +708,7 @@ def test_history_rejects_corruption_and_bundle_requires_input(tmp_path, capsys):
     with pytest.raises(SystemExit, match="0"):
         cli.app(["bundle"])
     assert "No prepared folders" in capsys.readouterr().out
-    with pytest.raises(ValueError, match="METHODS --in FOLDER"):
+    with pytest.raises(ValueError, match="METHODS --input FOLDER"):
         cli.bundle("DPA")
 
 

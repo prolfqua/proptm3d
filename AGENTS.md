@@ -36,26 +36,23 @@ uv run proptm3d prepare gsea DPA /path/to/viewer --input PTM_delivery.zip
 uv run proptm3d serve DPA /path/to/viewer --port 8000
 uv run proptm3d serve /path/to/viewer
 uv run proptm3d serve /path/to/viewer-DPA.zip
-uv run proptm3d bundle DPA --in /path/to/viewer
-uv run proptm3d bundle DPA DPU --in /path/to/viewer
+uv run proptm3d bundle DPA --input /path/to/viewer
+uv run proptm3d bundle DPA DPU --input /path/to/viewer
 uv run proptm3d bundle /path/to/viewer
-uv run proptm3d upload 43037 "ptm-pipeline_analysis_v3"
 uv run proptm3d clean /path/to/viewer
 
 cd web && npm ci && cd .. && make package-web
 ```
 
-The method names are `DPA`, `DPU`, and `CF-DPU`. Omitting both method and folder from `prepare stats` or `prepare gsea` selects all three and writes beside the input as `proptm3d_<input basename>`. A method without a folder selects that method in the same default folder; an explicit folder without a method selects all three. `--input` is always required. Preparation writes the root method chooser, complete method browser apps, and Python-rendered plot backgrounds. `serve FOLDER` serves that all-method chooser; `serve METHOD FOLDER` shows one method, and `serve BUNDLE.zip` extracts a ZIP temporarily. Bare `bundle` lists prepared-folder history; `bundle FOLDER` includes every prepared method behind the chooser entry page, while positional methods plus `--in FOLDER` select a subset. Bundles share referenced structure and PAE files under `shared/`. `clean FOLDER` deletes the whole validated root, never the input or shared cache. A bare `proptm3d` shows help. Cache downloads under `~/.cache/proptm3d` are shared; `cache clean HUMAN|MOUSE` removes only the selected organism's AlphaFold cache.
+The method names are `DPA`, `DPU`, and `CF-DPU`. Omitting both method and folder from `prepare stats` or `prepare gsea` selects all three and writes beside the input as `proptm3d_<input basename>`. A method without a folder selects that method in the same default folder; an explicit folder without a method selects all three. `--input` is always required. Preparation writes the root method chooser, complete method browser apps, and Python-rendered plot backgrounds. `serve FOLDER` serves that all-method chooser; `serve METHOD FOLDER` shows one method, and `serve BUNDLE.zip` extracts a ZIP temporarily. Bare `bundle` lists prepared-folder history; `bundle FOLDER` includes every prepared method behind the chooser entry page, while positional methods plus `--input FOLDER` select a subset. Bundles share referenced structure and PAE files under `shared/`. `clean FOLDER` deletes the whole validated root, never the input or shared cache. A bare `proptm3d` shows help. Cache downloads under `~/.cache/proptm3d` (or `$XDG_CACHE_HOME/proptm3d`) are shared; `cache clean HUMAN|MOUSE` removes only the selected organism's AlphaFold cache.
 
 ## Architecture
 
-The exhaustive import-linter contract in `pyproject.toml` enforces the main direction: CLI -> B-Fabric upload -> preparation/bundling/static serving -> prepared-root/context boundaries -> extraction/cache modules. `__init__.py` stays empty.
+The exhaustive import-linter contract in `pyproject.toml` enforces the main direction: CLI -> preparation/bundling/static serving -> prepared-root/context boundaries -> extraction/cache modules. `__init__.py` stays empty.
 
 | Module | Responsibility |
 |---|---|
-| `cli.py` | Cyclopts `cache`, `prepare`, `serve`, `bundle`, `upload`, and `clean` commands |
-| `bfabric_upload.py` | Validated PTM Pipeline/application 431 and proptm3d/application 434 uploads through their shared saved client-credentials environment |
-| `upload_cache.py` | User-level association of a prepared root with its source PTM delivery and derived proptm3d bundle |
+| `cli.py` | Cyclopts `cache`, `prepare`, `serve`, `bundle`, and `clean` commands |
 | `prepare.py` | Atomic method package export, manifests, and Parquet tables |
 | `browser_assets.py`, `plot_backgrounds.py` | Packaged static app installation and Python-rendered black-point plots |
 | `prepared_history.py`, `prepared_root.py`, `bundle.py` | Prepared-root discovery, ownership checks, and portable ZIP export |

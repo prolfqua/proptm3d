@@ -37,7 +37,7 @@ from proptm3d.structural_context import (
     CONTEXT_METADATA,
     site_structural_context,
 )
-from proptm3d.structural_context_cache import load_precomputed_contexts
+from proptm3d.structural_context_cache import DEFAULT_CACHE_ROOT, load_precomputed_contexts
 from proptm3d.uniprot_cache import AnnotationTables, load_annotations
 
 
@@ -573,7 +573,7 @@ def _prepare_from_mudata(
     cache_root: Path | None = None,
 ) -> list[dict]:
     """Prepare requested methods from one validated MuData source."""
-    cache_root = cache_root or Path.home() / ".cache" / "proptm3d"
+    cache_root = cache_root or DEFAULT_CACHE_ROOT
     tables = [
         read_prepared_tables(mudata_file, method, expected_stage=expected_stage)
         for method in methods

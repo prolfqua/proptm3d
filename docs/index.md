@@ -10,7 +10,6 @@ browser
 data
 filter-model
 bundles
-bfabric
 api
 development
 ```

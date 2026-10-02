@@ -5,13 +5,13 @@ A prepared output folder may contain one or more of DPA, DPU, and CF-DPU. It can
 After [preparing the analysis](quickstart.md), make a ZIP for one method, a selected subset, or all available methods:
 
 ```sh
-uv run proptm3d bundle DPA --in /path/to/viewer --out /path/to/DPA.zip
-uv run proptm3d bundle DPA DPU --in /path/to/viewer --out /path/to/DPA-DPU.zip
-uv run proptm3d bundle /path/to/viewer --out /path/to/all-methods.zip
-uv run proptm3d bundle DPA --in /path/to/viewer --out /path/to/DPA-static-only.zip --no-include-server
+uv run proptm3d bundle DPA --input /path/to/viewer --output /path/to/DPA.zip
+uv run proptm3d bundle DPA DPU --input /path/to/viewer --output /path/to/DPA-DPU.zip
+uv run proptm3d bundle /path/to/viewer --output /path/to/all-methods.zip
+uv run proptm3d bundle DPA --input /path/to/viewer --output /path/to/DPA-static-only.zip --no-include-server
 ```
 
-`--out` is optional. Without it, the ZIP is written beside the prepared folder as `viewer-DPA.zip`, `viewer-DPA-DPU.zip`, or `viewer-all.zip`. An existing ZIP is never overwritten. Preparation already writes the all-method overview to the prepared root's `index.html`. A single-method archive opens directly into the app at its root `index.html`; two or more methods use the overview page with its method comparison table, prepared coverage counts, provenance, and links to each viewer. Every bundle has one `shared/` folder containing each referenced AlphaFold structure, PAE file, and residue-context Parquet file once. The method-specific `structures.parquet` files inside the ZIP point to these shared files; the prepared tables remain unchanged. Python preparation already includes the built browser app and static black-point images. No cache symlinks or original h5mu files are needed at the destination.
+`--output` is optional. Without it, the ZIP is written beside the prepared folder as `viewer-DPA.zip`, `viewer-DPA-DPU.zip`, or `viewer-all.zip`. An existing ZIP is never overwritten. Preparation already writes the all-method overview to the prepared root's `index.html`. A single-method archive opens directly into the app at its root `index.html`; two or more methods use the overview page with its method comparison table, prepared coverage counts, provenance, and links to each viewer. Every bundle has one `shared/` folder containing each referenced AlphaFold structure, PAE file, and residue-context Parquet file once. The method-specific `structures.parquet` files inside the ZIP point to these shared files; the prepared tables remain unchanged. Python preparation already includes the built browser app and static black-point images. No cache symlinks or original h5mu files are needed at the destination.
 
 Preparation records all packaged JavaScript and CSS in `data/browser-assets.json`. Bundling verifies that inventory and the asset references in `index.html`; if a chunk is missing, it fails before writing the ZIP. Re-prepare a folder made by an older version that lacks the inventory or Python-generated backgrounds.
 
