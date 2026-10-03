@@ -18,15 +18,6 @@ Prepared roots and bundles
 .. automodule:: proptm3d.bundle
    :members: bundle_prepared_root, validate_bundle
 
-B-Fabric upload
----------------
-
-.. automodule:: proptm3d.bfabric_upload
-   :members: upload_artifacts, upload_bundle, upload_pair
-
-.. automodule:: proptm3d.upload_cache
-   :members: latest_upload_pair, pair_from_paths, record_bundle, record_pair, record_preparation
-
 Static serving
 --------------
 
