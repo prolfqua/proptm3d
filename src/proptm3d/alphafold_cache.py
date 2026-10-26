@@ -143,8 +143,6 @@ def _extract_archive(
     archive: Path,
     accessions: set[str] | None,
     models: Path,
-    metadata_dir: Path,
-    session: requests.Session,
 ) -> dict[str, list[dict]]:
     results: dict[str, list[dict]] = (
         {} if accessions is None else {accession: [] for accession in accessions}
@@ -188,20 +186,13 @@ def _extract_archive(
         sum(bool(value) for value in results.values()),
         len(results) if accessions is None else len(accessions),
     )
-    for accession, fragments in results.items():
+    # AlphaFold DB publishes no PAE for the fragments of a protein too long for
+    # one model; an API entry of the same name is another, shorter prediction.
+    # The fragments' mmCIFs carry their UniProt positions.
+    for fragments in results.values():
         if len(fragments) > 1:
-            metadata = _prediction_metadata(session, accession, metadata_dir)
-            by_fragment = {
-                entry.get("modelEntityId", entry.get("entryId")): entry for entry in metadata
-            }
             for fragment in fragments:
-                key = f"AF-{accession}-F{fragment['fragment']}"
-                detail = by_fragment.get(key)
-                if detail is None:
-                    continue
-                fragment["start"] = detail.get("uniprotStart")
-                fragment["end"] = detail.get("uniprotEnd")
-                fragment["pae_url"] = detail.get("paeDocUrl", fragment["pae_url"])
+                fragment["pae_url"] = None
     return results
 
 
@@ -212,11 +203,10 @@ def cache_archive_models(
 ) -> dict[str, list[dict]]:
     """Extract and catalogue every mmCIF model in one reference-proteome archive."""
     models = cache_root / "alphafold" / "structures"
-    metadata_dir = cache_root / "alphafold" / "prediction_metadata"
     models.mkdir(parents=True, exist_ok=True)
     with requests.Session() if session is None else session as client:
         archive = _archive(cache_root, proteome, client)
-        extracted = _extract_archive(archive, None, models, metadata_dir, client)
+        extracted = _extract_archive(archive, None, models)
     catalog = {
         "archive": archive_name(proteome),
         "models": [
@@ -282,7 +272,7 @@ def cache_models(
     models.mkdir(parents=True, exist_ok=True)
     with requests.Session() if session is None else session as client:
         archive = _archive(cache_root, proteome, client)
-        in_archive = _extract_archive(archive, accessions & primary, models, metadata_dir, client)
+        in_archive = _extract_archive(archive, accessions & primary, models)
         foreign = _individual_models(accessions - primary, models, metadata_dir, client)
     return in_archive | foreign
 
@@ -345,12 +335,12 @@ def _log_pae_progress(completed: int, total: int) -> None:
 
 
 def _iter_session_pae_files(
-    ready: list[tuple[str, Path]],
+    ready: list[tuple[str, Path | None]],
     missing: list[dict],
     cache_dir: Path,
     session: requests.Session,
     total: int,
-) -> Iterator[tuple[str, Path]]:
+) -> Iterator[tuple[str, Path | None]]:
     completed = len(ready)
     yield from ready
     for model in missing:
@@ -361,11 +351,11 @@ def _iter_session_pae_files(
 
 
 def _iter_parallel_pae_files(
-    ready: list[tuple[str, Path]],
+    ready: list[tuple[str, Path | None]],
     missing: list[dict],
     cache_dir: Path,
     total: int,
-) -> Iterator[tuple[str, Path]]:
+) -> Iterator[tuple[str, Path | None]]:
     worker_count = min(PAE_DOWNLOAD_WORKERS, len(missing))
     clients = [requests.Session() for _ in range(worker_count)]
     available_clients: Queue[requests.Session] = Queue()
@@ -405,16 +395,20 @@ def iter_cached_pae_files(
     models: dict[str, list[dict]],
     cache_root: Path,
     session: requests.Session | None = None,
-) -> Iterator[tuple[str, Path]]:
-    """Yield cached PAE files while missing gzip objects download concurrently."""
+) -> Iterator[tuple[str, Path | None]]:
+    """Yield cached PAE files while missing gzip objects download concurrently.
+
+    A model whose PAE AlphaFold does not publish is yielded with None.
+    """
     cache_dir = cache_root / "alphafold" / "pae"
     model_list = _pae_models(models)
-    ready = [
+    published = [model for model in model_list if model["pae_url"] is not None]
+    ready = [(model["file"], None) for model in model_list if model["pae_url"] is None] + [
         (model["file"], target)
-        for model in model_list
+        for model in published
         if _is_cached_pae(target := _pae_target(model, cache_dir))
     ]
-    missing = [model for model in model_list if not _is_cached_pae(_pae_target(model, cache_dir))]
+    missing = [model for model in published if not _is_cached_pae(_pae_target(model, cache_dir))]
     total = len(model_list)
     logger.info(
         "AlphaFold PAE cache: {} present, {} to download with up to {} workers",
@@ -437,7 +431,7 @@ def cache_pae_files(
     models: dict[str, list[dict]],
     cache_root: Path,
     session: requests.Session | None = None,
-) -> dict[str, Path]:
+) -> dict[str, Path | None]:
     """Download and cache the PAE matrix belonging to each selected model."""
     return dict(iter_cached_pae_files(models, cache_root, session))
 

@@ -60,6 +60,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `cache context` no longer looks up PAE for the fragments of proteins too long for one AlphaFold model: AlphaFold DB publishes none, and its API entry of the same name is a different, shorter prediction. These fragments keep their residues and pLDDT, with exposure and IDR left missing, and the PAE completeness count leaves them out. A failed UniProt page request is retried up to three times.
 - C's All view now shows every observed exact intersection, including property-only sites, so its column counts add up to the selected-site total instead of hiding part of the union.
 - UpSet count labels above intersection bars are clickable, including when the bars are too small to target.
 - Tiny UpSet set-size bars can now be selected through their full row names, including by keyboard, without distorting their plotted counts.

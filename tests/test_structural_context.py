@@ -103,6 +103,27 @@ def test_model_context_cache_computes_gly_vector_and_reuses_result(tmp_path):
     assert structural_context.cache_model_contexts(models, {}, tmp_path) == cached
 
 
+def test_model_context_without_pae_keeps_residues_and_leaves_exposure_missing(tmp_path):
+    structures = tmp_path / "alphafold" / "structures"
+    structures.mkdir(parents=True)
+    model_file = "AF-P12345-F2-model_v6.cif.gz"
+    with gzip.open(structures / model_file, "wt", encoding="utf-8") as stream:
+        stream.write(_alphafold_cif_text())
+    models = {
+        "P12345": [
+            {"file": model_file, "model_id": "AF-P12345-F2", "fragment": 2, "version": 6}
+        ]
+    }
+
+    cached = structural_context.cache_model_contexts(models, {model_file: None}, tmp_path)
+
+    result = pl.read_parquet(cached[model_file])
+    assert result["position"].to_list() == [11, 12]
+    assert result["plddt"].to_list() == [91.0, 72.0]
+    assert result["is_exposed"].to_list() == [None, None]
+    assert result["nAA_24_180_pae"].dtype == pl.Int64
+
+
 def test_structural_context_validates_files_shapes_and_columns(tmp_path):
     with pytest.raises(FileNotFoundError, match="mmCIF"):
         structural_context.parse_alphafold_cif(tmp_path / "missing.cif")

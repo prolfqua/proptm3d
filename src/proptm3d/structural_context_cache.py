@@ -93,6 +93,7 @@ def cache_statuses(cache_root: Path) -> list[dict]:
         expected_pae = {
             f"{model['model_id']}-predicted_aligned_error_v{model['version']}.json.gz"
             for model in models
+            if model["pae_url"] is not None
         }
         expected_context = {
             f"{model['model_id']}-model_v{model['version']}.parquet" for model in models
@@ -129,8 +130,8 @@ def cache_statuses(cache_root: Path) -> list[dict]:
                 },
                 "pae": {
                     "cached": pae_count,
-                    "total": total,
-                    "available": total > 0 and pae_count == total,
+                    "total": len(expected_pae),
+                    "available": total > 0 and pae_count == len(expected_pae),
                 },
                 "context": {
                     "cached": context_count,

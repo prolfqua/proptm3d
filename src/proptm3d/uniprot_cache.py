@@ -111,14 +111,28 @@ def _rows(entries: list[dict]) -> tuple[list[dict], list[dict]]:
     return proteins, features
 
 
+def _get_page(session: requests.Session, url: str, params: dict | None) -> requests.Response:
+    attempt = 0
+    while True:
+        try:
+            response = session.get(url, params=params, timeout=120)
+            response.raise_for_status()
+            return response
+        except requests.RequestException:
+            attempt += 1
+            if attempt == 3:
+                raise
+            logger.warning("UniProt page request failed; retrying {}", url)
+            time.sleep(2 ** (attempt - 1))
+
+
 def _pages(
     session: requests.Session, url: str, params: dict | None = None
 ) -> tuple[list[dict], str]:
     entries: list[dict] = []
     release = ""
     while url:
-        response = session.get(url, params=params, timeout=120)
-        response.raise_for_status()
+        response = _get_page(session, url, params)
         release = response.headers.get("X-UniProt-Release", release)
         body = response.json()
         entries.extend(body["results"])

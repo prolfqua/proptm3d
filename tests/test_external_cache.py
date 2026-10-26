@@ -123,6 +123,27 @@ def test_uniprot_pages_extra_mapping_and_cache_reuse(tmp_path):
     assert cached_session.calls == []
 
 
+def test_uniprot_page_is_retried_after_a_timeout(monkeypatch):
+    class FlakySession(Session):
+        def get(self, url, **kwargs):
+            self.calls.append(("GET", url))
+            if len(self.calls) == 1:
+                raise requests.ReadTimeout("slow page")
+            return self.get_routes[url]
+
+    page = Response(
+        {"results": [{"primaryAccession": "P12345"}]}, headers={"X-UniProt-Release": "2026_04"}
+    )
+    session = FlakySession({"https://example.org/page": page})
+    monkeypatch.setattr(uniprot_cache.time, "sleep", lambda delay: None)
+
+    entries, release = uniprot_cache._pages(session, "https://example.org/page")
+
+    assert entries == [{"primaryAccession": "P12345"}]
+    assert release == "2026_04"
+    assert len(session.calls) == 2
+
+
 def test_uniprot_inference_rejects_ambiguous_species():
     with pytest.raises(ValueError, match="unique"):
         uniprot_cache.infer_proteome(["sp|A|X_MOUSE", "sp|B|X_HUMAN"])
@@ -150,12 +171,6 @@ def test_alphafold_archive_fragments_foreign_model_and_cache_reuse(tmp_path):
     archive_url = alphafold_cache.ARCHIVE_ROOT + "/" + alphafold_cache.archive_name(proteome)
     routes = {
         archive_url: Response(content=_tar_bytes()),
-        alphafold_cache.PREDICTION_ROOT + "/P12345": Response(
-            [
-                {"modelEntityId": "AF-P12345-F1", "uniprotStart": 1, "uniprotEnd": 1400},
-                {"modelEntityId": "AF-P12345-F2", "uniprotStart": 201, "uniprotEnd": 1600},
-            ]
-        ),
         alphafold_cache.PREDICTION_ROOT + "/X12345": Response(
             [
                 {
@@ -178,8 +193,7 @@ def test_alphafold_archive_fragments_foreign_model_and_cache_reuse(tmp_path):
         tmp_path,
         session,
     )
-    assert [item["start"] for item in models["P12345"]] == [1, 201]
-    assert models["P12345"][1]["end"] == 1600
+    assert [item["start"] for item in models["P12345"]] == [1, None]
     assert models["Q12345"][0]["fragment"] == 1
     assert models["X12345"][0]["end"] == 12
     assert (
@@ -204,26 +218,43 @@ def test_alphafold_archive_fragments_foreign_model_and_cache_reuse(tmp_path):
     assert session.calls == []
 
 
-def test_alphafold_archive_can_extract_every_model_without_accession_selection(tmp_path):
+def test_alphafold_fragments_have_no_pae_even_with_a_same_named_api_entry(tmp_path):
     proteome = uniprot_cache.Proteome("UP000000589", 10090, "10090_MOUSE")
     archive_url = alphafold_cache.ARCHIVE_ROOT + "/" + alphafold_cache.archive_name(proteome)
     session = Session(
         {
             archive_url: Response(content=_tar_bytes()),
             alphafold_cache.PREDICTION_ROOT + "/P12345": Response(
-                [
-                    {"modelEntityId": "AF-P12345-F1", "uniprotStart": 1},
-                    {"modelEntityId": "AF-P12345-F2", "uniprotStart": 201},
-                ]
+                [{"modelEntityId": "AF-P12345-F1", "uniprotEnd": 1237, "paeDocUrl": "x"}]
             ),
         }
     )
+    models = alphafold_cache.cache_models(
+        proteome, {"P12345", "Q12345"}, {"P12345", "Q12345"}, tmp_path, session
+    )
+
+    assert [model["pae_url"] for model in models["P12345"]] == [None, None]
+    assert models["Q12345"][0]["pae_url"] is not None
+    assert not any("P12345" in str(call) for call in session.calls)
+    session.calls.clear()
+    cached = alphafold_cache.cache_pae_files({"P12345": models["P12345"]}, tmp_path, session)
+    assert cached == {
+        "AF-P12345-F1-model_v6.cif.gz": None,
+        "AF-P12345-F2-model_v6.cif.gz": None,
+    }
+    assert session.calls == []
+
+
+def test_alphafold_archive_can_extract_every_model_without_accession_selection(tmp_path):
+    proteome = uniprot_cache.Proteome("UP000000589", 10090, "10090_MOUSE")
+    archive_url = alphafold_cache.ARCHIVE_ROOT + "/" + alphafold_cache.archive_name(proteome)
+    session = Session({archive_url: Response(content=_tar_bytes())})
 
     models = alphafold_cache.cache_archive_models(proteome, tmp_path, session)
 
     assert set(models) == {"P12345", "Q12345"}
     assert sum(len(entries) for entries in models.values()) == 3
-    assert models["P12345"][1]["start"] == 201
+    assert models["P12345"][1]["pae_url"] is None
 
 
 def test_alphafold_clean_removes_only_selected_proteome_cache(tmp_path):

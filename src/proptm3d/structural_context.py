@@ -314,6 +314,17 @@ def _bludau_neighbor_counts(
     return part_counts, full_counts
 
 
+def residue_context_without_pae(residues: pl.DataFrame) -> pl.DataFrame:
+    """Residue positions and pLDDT, with the PAE-derived exposure and IDR columns missing."""
+    return residues.select("model_position", "position", "residue", "plddt").with_columns(
+        pl.lit(None, dtype=pl.Int64).alias("nAA_12_70_pae"),
+        pl.lit(None, dtype=pl.Boolean).alias("is_exposed"),
+        pl.lit(None, dtype=pl.Int64).alias("nAA_24_180_pae"),
+        pl.lit(None, dtype=pl.Float64).alias("nAA_24_180_pae_smooth10"),
+        pl.lit(None, dtype=pl.Boolean).alias("is_idr"),
+    )
+
+
 def annotate_bludau_context(residues: pl.DataFrame, pae: np.ndarray) -> pl.DataFrame:
     """Calculate StructureMap-compatible exposure and IDR annotations."""
     missing = {"model_position", "position", "residue", "plddt", *_COORDINATE_COLUMNS} - set(
@@ -323,13 +334,7 @@ def annotate_bludau_context(residues: pl.DataFrame, pae: np.ndarray) -> pl.DataF
         message = f"Residue table lacks structural columns: {sorted(missing)}"
         raise ValueError(message)
     if residues.is_empty():
-        return residues.select("model_position", "position", "residue", "plddt").with_columns(
-            pl.Series("nAA_12_70_pae", [], dtype=pl.Int64),
-            pl.Series("is_exposed", [], dtype=pl.Boolean),
-            pl.Series("nAA_24_180_pae", [], dtype=pl.Int64),
-            pl.Series("nAA_24_180_pae_smooth10", [], dtype=pl.Float64),
-            pl.Series("is_idr", [], dtype=pl.Boolean),
-        )
+        return residue_context_without_pae(residues)
     part_counts, full_counts = _bludau_neighbor_counts(residues, pae)
     return (
         residues.select("model_position", "position", "residue", "plddt")
@@ -368,10 +373,13 @@ def model_context_path(model: dict, cache_root: Path) -> Path:
 
 def cache_model_contexts(
     models: dict[str, list[dict]],
-    pae_files: dict[str, Path],
+    pae_files: dict[str, Path | None],
     cache_root: Path,
 ) -> dict[str, Path]:
-    """Compute and cache one residue-context Parquet file per AlphaFold model."""
+    """Compute and cache one residue-context Parquet file per AlphaFold model.
+
+    A model without PAE keeps its residues and pLDDT; its exposure and IDR stay missing.
+    """
     context_dir = cache_root / "alphafold" / "structural_context" / CONTEXT_ALGORITHM_VERSION
     context_dir.mkdir(parents=True, exist_ok=True)
     structures = cache_root / "alphafold" / "structures"
@@ -386,8 +394,11 @@ def cache_model_contexts(
                     residues = parse_alphafold_cif(
                         structures / model["file"], model_start=model.get("start")
                     )
-                    annotated = annotate_bludau_context(
-                        residues, load_pae(pae_files[model["file"]])
+                    pae_file = pae_files[model["file"]]
+                    annotated = (
+                        residue_context_without_pae(residues)
+                        if pae_file is None
+                        else annotate_bludau_context(residues, load_pae(pae_file))
                     ).with_columns(
                         pl.lit(accession).alias("accession"),
                         pl.lit(model_id).alias("model_id"),
