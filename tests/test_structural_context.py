@@ -110,9 +110,7 @@ def test_model_context_without_pae_keeps_residues_and_leaves_exposure_missing(tm
     with gzip.open(structures / model_file, "wt", encoding="utf-8") as stream:
         stream.write(_alphafold_cif_text())
     models = {
-        "P12345": [
-            {"file": model_file, "model_id": "AF-P12345-F2", "fragment": 2, "version": 6}
-        ]
+        "P12345": [{"file": model_file, "model_id": "AF-P12345-F2", "fragment": 2, "version": 6}]
     }
 
     cached = structural_context.cache_model_contexts(models, {model_file: None}, tmp_path)
