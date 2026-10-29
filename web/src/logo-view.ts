@@ -12,6 +12,20 @@ const COLORS: Record<AminoAcid, string> = {
   S: '#318b72', T: '#318b72', V: '#546e7a', W: '#7956a6', Y: '#7956a6',
 }
 
+// Frequency differences rarely exceed a few tenths; a fixed ±1 axis shrinks
+// most letters below the drawable height.
+const SIGNED_LIMITS = [0.05, 0.1, 0.2, 0.25, 0.5, 1]
+
+function signedLimit(matrix: LogoMatrix): number {
+  const stacks = matrix.flatMap((column) => {
+    const values = AMINO_ACIDS.map((aa) => column.frequencies[aa])
+    const sum = (selected: number[]) => selected.reduce((total, value) => total + value, 0)
+    return [sum(values.filter((value) => value > 0)), -sum(values.filter((value) => value < 0))]
+  })
+  const tallest = Math.max(...stacks)
+  return SIGNED_LIMITS.find((limit) => tallest <= limit) ?? 1
+}
+
 function letter(aa: AminoAcid, x: number, top: number, height: number): string {
   if (height < 2.5) return ''
   const y = top + height * 0.91
@@ -34,7 +48,8 @@ export function renderLogo(
     return
   }
   const baseline = signed ? 105 : 183
-  const unitHeight = signed ? 73 : 153
+  const limit = signed ? signedLimit(matrix) : 1
+  const unitHeight = signed ? 73 / limit : 153
   const letters: string[] = []
   for (let index = 0; index < matrix.length; index++) {
     const column = matrix[index]
@@ -62,7 +77,7 @@ export function renderLogo(
   }).join('')
   const centre = LEFT + 7 * STEP + STEP / 2
   const scale = signed
-    ? '<text x="6" y="34" font-size="10" fill="#5c6570">+1</text><text x="6" y="108" font-size="10" fill="#5c6570">0</text><text x="6" y="181" font-size="10" fill="#5c6570">−1</text>'
+    ? `<text x="6" y="34" font-size="10" fill="#5c6570">+${limit}</text><text x="6" y="108" font-size="10" fill="#5c6570">0</text><text x="6" y="181" font-size="10" fill="#5c6570">−${limit}</text>`
     : '<text x="6" y="33" font-size="10" fill="#5c6570">1</text><text x="6" y="185" font-size="10" fill="#5c6570">0</text>'
   host.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${WIDTH} ${HEIGHT}" role="img" aria-label="${signed ? 'Signed amino-acid frequency difference' : 'Amino-acid frequency sequence logo'}"><line x1="${LEFT}" y1="${baseline}" x2="${LEFT + 15 * STEP}" y2="${baseline}" stroke="#89929c" stroke-width="1"/><line x1="${centre}" y1="12" x2="${centre}" y2="193" stroke="#b7c5d2" stroke-dasharray="3 3"/>${scale}${letters.join('')}${ticks}<text x="${WIDTH / 2}" y="222" text-anchor="middle" font-size="10" fill="#5c6570">Position relative to modified residue</text></svg>`
 }
