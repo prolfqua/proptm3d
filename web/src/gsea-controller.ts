@@ -21,6 +21,7 @@ import {
   gseaTableRows,
 } from './gsea-table.js'
 import type { EnrichmentInput } from './filtering.js'
+import { SearchableSelect } from './searchable-select.js'
 import type { SetSelection } from './upset-model.js'
 import type { AppData, GseaPayload, RunManifest } from './types.js'
 
@@ -49,6 +50,8 @@ export class GseaController {
   enrichment: EnrichmentInput = {payload:null,fdr:0.05,leading:false,context:'',revision:0,
     status:'Loading enrichment…',ready:false}
   private proteinSearch = ''
+  private readonly resultChoice: SearchableSelect
+  private readonly sequenceChoice: SearchableSelect
 
   constructor(
     private readonly root: HTMLElement,
@@ -56,7 +59,12 @@ export class GseaController {
     private readonly findSets: (matches: ReadonlySet<string> | null) => void,
     private readonly setStatus: Status,
     private readonly openSite: (proteinId: string, site: string, contrast: string) => void,
-  ) {}
+  ) {
+    this.resultChoice = new SearchableSelect(this.el('#gsea-result'), this.el('#gsea-result-options'),
+      (resultId) => this.changeResult(resultId))
+    this.sequenceChoice = new SearchableSelect(this.el('#sequence-set'), this.el('#sequence-set-options'),
+      (key) => this.selectSequenceSet(key))
+  }
 
   private el<T extends HTMLElement>(selector: string): T {
     const element = this.root.querySelector<T>(selector)
@@ -110,15 +118,13 @@ export class GseaController {
     const {scopes,resultId}=resolveEnrichmentContext(this.run,this.allowedContrasts,
       this.resultId,this.contrast)
     this.resultId=resultId
-    const resultSelect=this.el<HTMLSelectElement>('#gsea-result')
     const results=this.branchSelection.kind==='off'?scopes
       :scopes.filter(({result})=>result.id===this.resultId)
-    resultSelect.replaceChildren(...results.map(({result})=>new Option(result.label,result.id)))
-    resultSelect.value=this.resultId
-    resultSelect.disabled=results.length<=1
-    resultSelect.title=this.branchSelection.kind==='off'
-      ? 'Choose the enrichment result B can use; no site filter changes while B is Off.'
-      : 'B is using this enrichment result. Turn B Off to choose another method.'
+    this.resultChoice.update(results.map(({result})=>({value:result.id,label:result.label})),
+      this.resultId,results.length<=1)
+    this.el('#gsea-result').title=this.branchSelection.kind==='off'
+      ? 'Choose the enrichment result B can use; no site filter changes while B or filtering is Off.'
+      : 'B is using this enrichment result. Turn B Off or Filtering Off to choose another method.'
   }
 
   setVisible(visible: boolean): void {
@@ -149,12 +155,12 @@ export class GseaController {
     if (this.visible) void this.renderPlots()
   }
 
-  changeResult(event: Event): void {
+  private changeResult(resultId: string): void {
     if (this.branchSelection.kind!=='off') {
       this.syncScopeOptions()
       return
     }
-    this.resultId = (event.target as HTMLSelectElement).value
+    this.resultId = resultId
     this.syncScopeOptions()
     void this.load()
   }
@@ -195,20 +201,13 @@ export class GseaController {
     this.publishSets()
   }
 
-  changeSequenceSet(event: Event): void {
-    this.selectSequenceSet((event.target as HTMLSelectElement).value)
-  }
-
   private syncSequenceOptions(): void {
-    const select=this.el<HTMLSelectElement>('#sequence-set')
     const rows=this.payload?gseaNavigationRows(this.payload,this.fdr,this.branchSelection,this.selectedSites):[]
     const keys=new Set(rows.map(row=>sequenceSetKey(row.source,row.sequence_set)))
     if (!keys.has(this.selectedKey)) this.selectedKey=rows.length
       ? sequenceSetKey(rows[0].source,rows[0].sequence_set):''
-    select.replaceChildren(...rows.map(row=>new Option(`${row.sequence_set} · ${row.source}`,
-      sequenceSetKey(row.source,row.sequence_set))))
-    select.value=this.selectedKey
-    select.disabled=rows.length===0
+    this.sequenceChoice.update(rows.map(row=>({value:sequenceSetKey(row.source,row.sequence_set),
+      label:`${row.sequence_set} · ${row.source}`})),this.selectedKey,rows.length===0)
   }
 
   private async load(): Promise<void> {

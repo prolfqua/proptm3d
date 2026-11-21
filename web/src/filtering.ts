@@ -104,8 +104,11 @@ export class FilterModel {
     ['estimate','exposure','region'].includes(set.id)) }
   get universeSize(): number { return this.measured.size }
   get bContrasts(): readonly string[] {
-    return contrastsAllowedByA(this.models.a.sets.map(set=>set.id),this.selectionState.a)
+    return contrastsAllowedByA(this.models.a.sets.map(set=>set.id),
+      this.selectionState.globalOff?{kind:'off'}:this.selectionState.a)
   }
+  /** Global Off releases the GSEA method and sequence-set navigation while B keeps its saved choice. */
+  get effectiveB(): SetSelection { return this.selectionState.globalOff?{kind:'off'}:this.selectionState.b }
 
   update(data:AppData, contrast:string, thresholds:Thresholds, estimate:EstimateType,
     structural:StructuralFilters, enrichment:EnrichmentInput): {changed:boolean; notice:string} {

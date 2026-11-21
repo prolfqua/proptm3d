@@ -71,8 +71,6 @@ class PtmBrowserApp extends LitElement {
     showFind: (view) => this.showFind(view),
     showDetailView: (view) => this.showDetailView(view),
     changeStructureStyle: () => this.changeStructureStyle(),
-    changeGseaResult: (event) => this.gsea?.changeResult(event),
-    changeSequenceSet: (event) => this.gsea?.changeSequenceSet(event),
     changeGseaFdr: () => this.gsea?.changeFdr(),
     searchSequenceSets: () => this.gsea?.searchSequenceSets(),
     changeLeadingEdge: () => this.gsea?.changeLeadingEdge(),
@@ -282,7 +280,7 @@ class PtmBrowserApp extends LitElement {
     if (!this.data) return
     this.filters.update(this.data, this.displayedContrast, this.thresholds, this.estimateType, this.structural,
       this.gsea?.enrichment ?? NO_ENRICHMENT)
-    this.gsea?.setBranchSelection(this.filterModel.state.b)
+    this.gsea?.setBranchSelection(this.filterModel.effectiveB)
     const selected = this.filterModel.siteKeys
     const sites = rowsForSites(this.data.sites, selected)
     const results = rowsForSites(this.data.siteIndex, selected)

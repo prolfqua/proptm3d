@@ -167,6 +167,22 @@ test('C Off leaves A/B effective, while global Off bypasses all branches without
   assert.deepEqual(model.siteKeys,new Set([key('S2')]))
 })
 
+test('global Off releases contrast, GSEA method and sequence-set navigation while keeping A and B choices', () => {
+  const model=new FilterModel()
+  update(model)
+  model.select('a',{kind:'set',id:'late'})
+  model.select('b',{kind:'set',id:'KinaseLib\u0000K1'})
+  assert.deepEqual(model.bContrasts,['late'])
+  assert.deepEqual(model.effectiveB,{kind:'set',id:'KinaseLib\u0000K1'})
+  model.setGlobalOff(true)
+  assert.deepEqual(model.bContrasts,['early','late'])
+  assert.deepEqual(model.effectiveB,{kind:'off'})
+  assert.deepEqual(model.state.b,{kind:'set',id:'KinaseLib\u0000K1'})
+  model.setGlobalOff(false)
+  assert.deepEqual(model.bContrasts,['late'])
+  assert.deepEqual(model.effectiveB,{kind:'set',id:'KinaseLib\u0000K1'})
+})
+
 test('C All displays every exact intersection so columns reconcile with its union', () => {
   const model=new FilterModel()
   model.update(data,'early',{fdr:0.05,absEffect:1},'observed',ALL_STRUCTURES,enrichment())

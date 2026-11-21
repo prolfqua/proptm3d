@@ -5,7 +5,7 @@ import { renderGseaControls, renderGseaFindPanel, renderGseaNavigation } from '.
 /** Enrichment profile adds B and the GSEA workspace to the common browser. */
 export const gseaProfile: BrowserProfile = {
   id:'gsea', branches:['b','a','c'], contrastLabel:'Contrast for plots, detail and GSEA',
-  navigationHint:'A limits the contrast choices. With B active, changing contrast reloads B; sequence-set focus and protein search only navigate.',
+  navigationHint:'A limits the contrast choices and an active B fixes the GSEA method; Filtering Off lifts both. With B active, changing contrast reloads B; sequence-set focus and protein search only navigate.',
   filterNotice:'A limits B’s GSEA contrast choices; their site selections combine in C. C All is inclusive union. Bar clicks select sites and focus the UpSet display; View All changes only the plot.',
   guideUpSet:'A compares significant sites across contrasts and limits B’s GSEA contrast choices. B loads one contrast and compares its eligible sequence sets. Set-size bars select whole sets and columns select exact intersections. C defaults to their union with enabled Estimate and structural filters; an enabled Estimate uses the upper contrast. Off disables only that branch: C Off leaves A/B effective and disables the C property filters. All applies the branch union. The global filtering switch shows every measured site without clearing selections. In A and B, Dots per intersection limits displayed columns only; whole-set bars still include shared sites. In B, Find sequence set brings matching rows and their intersections into view without changing filter membership.',
   enrichment:{

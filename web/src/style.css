@@ -156,6 +156,36 @@ ptm-browser-app { display: block; min-height: 100vh; }
   color: var(--ink);
 }
 .control input:focus-visible, .control select:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.searchable-select { position: relative; }
+.control .searchable-select input {
+  padding-right: 1.8rem;
+  text-overflow: ellipsis;
+  background: var(--paper) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%235c6570' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 0.6rem center / 0.7rem;
+}
+.control .searchable-select input:disabled { background-image: none; background-color: var(--panel); color: var(--muted); }
+.searchable-select [role="listbox"] {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 2px);
+  left: 0;
+  min-width: 100%;
+  width: max-content;
+  max-width: min(36rem, 90vw);
+  max-height: 20rem;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0.25rem 0;
+  list-style: none;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  box-shadow: 0 0.4rem 1.2rem #172a3d2e;
+}
+.searchable-select [role="option"], .searchable-select-empty { padding: 0.28rem 0.65rem; white-space: nowrap; }
+.searchable-select [role="option"] { cursor: pointer; }
+.searchable-select [role="option"][aria-selected="true"] { font-weight: 600; }
+.searchable-select [role="option"].active, .searchable-select [role="option"]:hover { background: var(--accent-soft); }
+.searchable-select-empty { color: var(--muted); }
 .control .filter-toggle {
   display: flex;
   align-items: center;
@@ -282,7 +312,7 @@ ptm-browser-app { display: block; min-height: 100vh; }
 .filter-navigation { display: flex; flex-wrap: wrap; align-items: end; gap: .6rem 1rem; padding: .75rem .9rem; margin-top: 1rem; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); }
 .filter-navigation .control { flex: 0 1 20rem; }
 .filter-navigation .gsea-result { flex: 0 1 17rem; }
-.filter-navigation .gsea-result select { border-color: #8faac6; font-weight: 600; }
+.filter-navigation .gsea-result input { border-color: #8faac6; font-weight: 600; }
 .filter-navigation .sequence-set { flex: 0 1 18rem; }
 .filter-navigation .global-search { flex: 1 1 18rem; }
 .filter-navigation .subtle { flex-basis: 100%; font-size: .75rem; }

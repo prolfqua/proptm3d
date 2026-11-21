@@ -25,6 +25,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Global Filtering Off now also releases the upper navigation: the contrast, GSEA method and sequence-set controls list every choice instead of only those A and B permit, so the GSEA method can be changed without turning B Off. The GSEA method and sequence-set controls are searchable dropdowns.
 - A, B and C now share Off/All selection controls. C Off disables only C while A/B stay effective; a separate switch beside Hide filters shows all measured sites without clearing any branch selection. When global filtering is Off, the panels collapse and their optional preview retains the would-be UpSet counts instead of displaying the all-site count as a C selection.
 - A's upper contrast, its compatible GSEA result, the A/B/C site transitions, and the compact filter summary now share headless code paths covered by dependency tests without mounting the browser.
 - C no longer has a separate Estimate contrast selector. When Estimate is enabled, it uses the upper A-permitted contrast in both Stats and GSEA browsers; changing that contrast can change the selected sites.

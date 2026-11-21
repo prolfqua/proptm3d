@@ -117,9 +117,8 @@ test('B whole and exact selections drive GSEA rows and volcano highlights, not c
 
 test('GSEA method and sequence-set navigation sit outside B filter controls', () => {
   const action=()=>{}
-  const actions={changeGseaResult:action,changeSequenceSet:action,
-    changeGseaFdr:action,searchSequenceSets:action,changeLeadingEdge:action}
-  const navigation=renderGseaNavigation(actions).strings.join('')
+  const actions={changeGseaFdr:action,searchSequenceSets:action,changeLeadingEdge:action}
+  const navigation=renderGseaNavigation().strings.join('')
   const controls=renderGseaControls(actions).strings.join('')
   assert.ok(navigation.indexOf('id="gsea-result"')<navigation.indexOf('id="sequence-set"'))
   assert.ok(!controls.includes('id="gsea-result"'))

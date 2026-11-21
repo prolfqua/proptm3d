@@ -10,7 +10,7 @@ export { statsProfile, gseaProfile }
 
 /** Optional enrichment plugin contribution; Stats does not implement these hooks. */
 export interface EnrichmentExtension {
-  renderNavigation(actions: GseaViewActions): TemplateResult
+  renderNavigation(): TemplateResult
   renderFilterControls(actions: GseaViewActions): TemplateResult
   renderFindTab(showFind: () => void): TemplateResult
   renderFindPanel(): TemplateResult

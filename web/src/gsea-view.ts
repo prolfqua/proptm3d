@@ -1,17 +1,19 @@
 import { html, type TemplateResult } from 'lit'
 
 export interface GseaViewActions {
-  changeGseaResult: (event: Event) => void
-  changeSequenceSet: (event: Event) => void
   changeGseaFdr: () => void
   searchSequenceSets: () => void
   changeLeadingEdge: () => void
 }
 
-export function renderGseaNavigation(actions: GseaViewActions): TemplateResult {
+export function renderGseaNavigation(): TemplateResult {
   return html`<div id="gsea-navigation" class="gsea-navigation" hidden>
-    <div class="control gsea-result"><label for="gsea-result">GSEA method</label><select id="gsea-result" @change=${actions.changeGseaResult}></select></div>
-    <div class="control sequence-set"><label for="sequence-set">Sequence set · running curve</label><select id="sequence-set" title="Choose a running curve for display; B selects sites." @change=${actions.changeSequenceSet}></select></div>
+    <div class="control gsea-result"><label for="gsea-result">GSEA method</label><div class="searchable-select">
+      <input id="gsea-result" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="gsea-result-options" autocomplete="off" spellcheck="false" placeholder="Type to search" />
+      <ul id="gsea-result-options" role="listbox" hidden></ul></div></div>
+    <div class="control sequence-set"><label for="sequence-set">Sequence set · running curve</label><div class="searchable-select">
+      <input id="sequence-set" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="sequence-set-options" autocomplete="off" spellcheck="false" placeholder="Type to search" title="Choose a running curve for display; B selects sites." />
+      <ul id="sequence-set-options" role="listbox" hidden></ul></div></div>
   </div>`
 }
 

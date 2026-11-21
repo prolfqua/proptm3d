@@ -51,7 +51,7 @@ export function renderApp(actions: AppViewActions, profile: BrowserProfile): Tem
         <div class="control structural"><label for="region-filter">Region</label><select id="region-filter" title="Region sets require matched AlphaFold context. All disables this operand; other C operands may still select unmatched sites." @change=${actions.changeStructuralFilters}><option value="all">All</option><option value="idr">IDR</option><option value="structured">Structured</option></select></div>`,
     }, html`
       <div class="control"><label for="displayed-contrast">${profile.contrastLabel}</label><select id="displayed-contrast" @change=${actions.changeDisplayedContrast}></select></div>
-      ${profile.enrichment?.renderNavigation(actions)}
+      ${profile.enrichment?.renderNavigation()}
       <div class="control global-search"><label for="find-search">Find protein</label><input id="find-search" type="search" placeholder="Gene, ID or accession" @input=${actions.refreshSummary} /></div>
     `, profile)}
     <nav class="main-tabs" aria-label="Workspaces">
